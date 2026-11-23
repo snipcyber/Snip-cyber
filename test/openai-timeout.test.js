@@ -7,7 +7,7 @@ const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
 const TEST_USER = "22222222-2222-4222-8222-222222222222";
 function mockSupabase(url) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) return new Response(JSON.stringify([{ id: TEST_RESERVATION }]), { status: 200 });
+  if (String(url).includes("/rest/v1/snip_usage_reservations?")) return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
   return null;
 }
 

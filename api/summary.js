@@ -5,10 +5,10 @@ import {
   unsafeUrl,
   publicDnsLookup,
   readLimited,
+  getPdfMaxBytes,
   extractScannedPdfPages
 } from "./pdf-find.js";
 
-const MAX_PDF_BYTES = 15 * 1024 * 1024;
 const TIMEOUT_MS = 25000;
 
 export default async function handler(req, res) {
@@ -66,7 +66,7 @@ export default async function handler(req, res) {
       throw error;
     }
 
-    const bytes = await readLimited(response, controller);
+    const bytes = await readLimited(response, controller, getPdfMaxBytes(reservation.plan));
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (!contentType.includes("pdf") && !bytes.subarray(0, 5).toString().startsWith("%PDF-")) {
       return res.status(415).json({ error: "The URL did not return a PDF." });

@@ -12,7 +12,15 @@ import {
   selectPrimaryFinancialEvidence
 } from "./pdf-search-utils.js";
 
-const MAX_PDF_BYTES = 15 * 1024 * 1024;
+export const PDF_SIZE_LIMITS = Object.freeze({
+  free: 25 * 1024 * 1024,
+  pro: 50 * 1024 * 1024,
+  unlimited: 100 * 1024 * 1024
+});
+
+export function getPdfMaxBytes(plan) {
+  return PDF_SIZE_LIMITS[plan] || PDF_SIZE_LIMITS.free;
+}
 const DEFAULT_TIMEOUT_MS = 90000;
 const configuredTimeout = Number(process.env.SNIP_PDF_TIMEOUT_MS);
 const TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout >= 10
@@ -93,18 +101,23 @@ function errorStatus(error, fallback = 500) {
   return Number.isInteger(error?.statusCode) ? error.statusCode : fallback;
 }
 
-export async function readLimited(response, controller) {
+export async function readLimited(
+  response,
+  controller,
+  maxBytes = PDF_SIZE_LIMITS.free
+) {
+  const maxMb = Math.round(maxBytes / (1024 * 1024));
   const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > MAX_PDF_BYTES) {
+  if (Number.isFinite(length) && length > maxBytes) {
     controller.abort();
-    const e = new Error("This PDF is too large for Snip right now (15 MB maximum).");
+    const e = new Error(`This PDF is too large for your Snip plan (${maxMb} MB maximum).`);
     e.statusCode = 413;
     throw e;
   }
   if (!response.body) {
     const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length > MAX_PDF_BYTES) {
-      const e = new Error("This PDF is too large for Snip right now (15 MB maximum).");
+    if (bytes.length > maxBytes) {
+      const e = new Error(`This PDF is too large for your Snip plan (${maxMb} MB maximum).`);
       e.statusCode = 413;
       throw e;
     }
@@ -115,9 +128,9 @@ export async function readLimited(response, controller) {
   for await (const chunk of response.body) {
     const b = Buffer.from(chunk);
     total += b.length;
-    if (total > MAX_PDF_BYTES) {
+    if (total > maxBytes) {
       controller.abort();
-      const e = new Error("This PDF is too large for Snip right now (15 MB maximum).");
+      const e = new Error(`This PDF is too large for your Snip plan (${maxMb} MB maximum).`);
       e.statusCode = 413;
       throw e;
     }
@@ -281,7 +294,7 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
       error.statusCode = 502;
       throw error;
     }
-    const bytes = await readLimited(response, controller);
+    const bytes = await readLimited(response, controller, getPdfMaxBytes(reservation.plan));
 
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (!contentType.includes("pdf") && !bytes.subarray(0, 5).toString().startsWith("%PDF-")) {

@@ -23,6 +23,7 @@ export async function verifyUsageReservation(req) {
 
   let table;
   let ownerFilter;
+  let select = 'id';
 
   if (token) {
     const auth = await fetch(`${url}/auth/v1/user`, {
@@ -36,6 +37,7 @@ export async function verifyUsageReservation(req) {
     if (!user.id) return { ok: false, status: 401, error: 'Account verification failed.' };
 
     table = 'snip_usage_reservations';
+    select = 'id,plan';
     ownerFilter = { user_id: `eq.${user.id}` };
   } else {
     const installHash = await verifyAnonymousKey(key);
@@ -52,7 +54,7 @@ export async function verifyUsageReservation(req) {
     ...ownerFilter,
     status: 'eq.reserved',
     expires_at: `gt.${new Date().toISOString()}`,
-    select: 'id'
+    select
   });
 
   const check = await fetch(`${url}/rest/v1/${table}?${params}`, {
@@ -70,5 +72,10 @@ export async function verifyUsageReservation(req) {
     return { ok: false, status: 403, error: 'Reservation invalid or expired.' };
   }
 
-  return { ok: true, reservationId: id };
+  const plan = token ? rows[0].plan : 'free';
+  if (!['free', 'pro', 'unlimited'].includes(plan)) {
+    return { ok: false, status: 403, error: 'Reservation has an invalid plan.' };
+  }
+
+  return { ok: true, reservationId: id, plan };
 }
