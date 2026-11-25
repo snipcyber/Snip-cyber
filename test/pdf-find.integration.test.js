@@ -7,10 +7,16 @@ process.env.SUPABASE_ANON_KEY ||= "test-anon";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 
 const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
+const TEST_RESERVATION_2 = "33333333-3333-4333-8333-333333333333";
 const TEST_USER = "22222222-2222-4222-8222-222222222222";
-function mockSupabase(url) {
+function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
+  if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+    assert.equal(options.method, "PATCH");
+    const idFilter = new URL(String(url)).searchParams.get("id");
+    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
+    return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+  }
   return null;
 }
 
@@ -61,7 +67,7 @@ test("PDF endpoint answers the M&S FY2026 cash question from the primary stateme
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
   globalThis.fetch = async (url) => {
-    const supabaseResponse = mockSupabase(url);
+    const supabaseResponse = mockSupabase(url, options);
     if (supabaseResponse) return supabaseResponse;
     fetchCount += 1;
     return new Response(pdfBytes, {
@@ -97,7 +103,7 @@ test("PDF endpoint answers the M&S FY2026 cash question from the primary stateme
       method: "POST",
       body: {
         url: "https://example.com/ms-fy2026.pdf",
-        reservation_id: TEST_RESERVATION,
+        reservation_id: TEST_RESERVATION_2,
         question: "What were cash and cash equivalents in the FY2023 consolidated statement of financial position?"
       },
       headers: { authorization: "Bearer test-token" }
@@ -157,8 +163,8 @@ test("rejects private and special-use IPv4/IPv6 targets and credential-bearing U
 test("validates redirect targets before fetching them", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];
-  globalThis.fetch = async url => {
-    const auth = mockSupabase(url);
+  globalThis.fetch = async (url, options) => {
+    const auth = mockSupabase(url, options);
     if (auth) return auth;
     requested.push(String(url));
     return new Response(null, { status: 302, headers: { location: "http://[fc00::1]/internal.pdf" } });
@@ -218,8 +224,8 @@ test("DNS guard returns the same validated public addresses for connection pinni
 test("allows a globally routable IPv6 PDF URL through URL validation", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
-  globalThis.fetch = async url => {
-    const auth = mockSupabase(url);
+  globalThis.fetch = async (url, options) => {
+    const auth = mockSupabase(url, options);
     if (auth) return auth;
     fetchCount += 1;
     return new Response("not a PDF", { status: 200, headers: { "content-type": "text/plain" } });
@@ -317,8 +323,8 @@ test("PDF endpoint returns all components from the M&S FY2026 liquidity disclosu
 }, async () => {
   const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async url => {
-    const supabaseResponse = mockSupabase(url);
+  globalThis.fetch = async (url, options) => {
+    const supabaseResponse = mockSupabase(url, options);
     if (supabaseResponse) return supabaseResponse;
     return new Response(pdfBytes, {
       status: 200,
@@ -363,7 +369,7 @@ test("PDF endpoint returns all components from the M&S FY2026 liquidity disclosu
       method: "POST",
       body: {
         url: "https://example.com/ms-fy2026.pdf",
-        reservation_id: TEST_RESERVATION,
+        reservation_id: TEST_RESERVATION_2,
         question: "At 28 March 2027, what made up total liquidity? Break down each component."
       },
       headers: { authorization: "Bearer test-token" }
