@@ -709,9 +709,11 @@ export function selectLiquidityEvidence(question, blocks) {
     // Reported rounded components may differ from the rounded total by 0.1m.
     if (Math.abs(componentSum - numeric[0]) > 0.2) continue;
 
-    const format = value => value.includes(".")
-      ? value.replace(/(\.\d)0+$/, "$1")
-      : value;
+    const format = value => {
+      const [whole, fraction] = value.split(".");
+      const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      return fraction === undefined ? groupedWhole : groupedWhole + "." + fraction;
+    };
     const formatted = amounts.map(format);
     const components = [
       { label: "Cash and cash equivalents", amount: currency + formatted[1] + "m" },
