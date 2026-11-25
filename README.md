@@ -17,25 +17,25 @@ These checks reduce server-side request forgery risk; they are not a substitute 
 
 ## Tests
 
-Install the dependencies and run the automated suite:
+Install dependencies and run the automated suite:
 
 ```sh
 npm install
 npm test
 ```
 
-The M&S FY2025 PDF integration test is opt-in so the report is not committed to the repository. Its expected answer, exact source quote, physical PDF page, and page count must be verified for the specific report edition being tested; page numbers and amounts must not be copied from another edition.
+The PDF integration suite includes security regressions for private and special-use IPs, DNS rebinding/mixed DNS answers, redirect validation, OCR page-slot handling, and the FY2026 M&S liquidity disclosure. The FY2026 primary-statement cash integration test is opt-in because the source PDF is not committed.
 
-Set all six environment variables, then run `npm test`:
+To run that test, supply the exact FY2026 PDF and values independently verified against that report edition:
 
 ```sh
-SNIP_MS_PDF_PATH=/path/to/verified-report.pdf \
-SNIP_MS_EXPECTED_ANSWER='<verified amount from the primary statement>' \
+SNIP_MS_PDF_PATH=/path/to/verified-fy2026-report.pdf \
+SNIP_MS_EXPECTED_ANSWER='<verified cash amount>' \
 SNIP_MS_EXPECTED_PERIOD='<verified reporting date>' \
-SNIP_MS_EXPECTED_QUOTE='<exact row copied from the primary statement>' \
-SNIP_MS_EXPECTED_PAGE=REPLACE_WITH_PHYSICAL_PAGE_NUMBER \
-SNIP_MS_EXPECTED_PAGE_COUNT=REPLACE_WITH_PHYSICAL_PAGE_COUNT \
+SNIP_MS_EXPECTED_QUOTE='<exact primary-statement quote>' \
+SNIP_MS_EXPECTED_PAGE=<physical-pdf-page-number> \
+SNIP_MS_EXPECTED_PAGE_COUNT=<pdf-page-count> \
 npm test
 ```
 
-Replace every placeholder with values verified against that exact PDF. Do not use the amount or page from a reconciliation table as the expected primary-statement result. The integration test is skipped unless the file path and all expected values are supplied.
+The liquidity regression checks the disclosure on printed page 24 / PDF page 26 and preserves the report's stated total separately from its rounded components. Do not copy values or page numbers from another report edition.
