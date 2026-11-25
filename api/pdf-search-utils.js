@@ -685,7 +685,7 @@ export function selectLiquidityEvidence(question, blocks) {
 
   const candidates = [];
   for (const block of Array.isArray(blocks) ? blocks : []) {
-    const text = String(block?.text || "").replace(/\\s+/g, " ").trim();
+    const text = String(block?.text || "").replace(/\s+/g, " ").trim();
     if (!text) continue;
     const total = text.match(totalPattern);
     const cash = text.match(cashPattern);
@@ -694,7 +694,7 @@ export function selectLiquidityEvidence(question, blocks) {
     if (!total || !cash || !committed || !uncommitted) continue;
 
     const date = text.match(
-      /\\b\\d{1,2}\\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+20\\d{2}\\b/i
+      /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/i
     )?.[0] || null;
     if (requestedDate && date?.toLowerCase() !== requestedDate.toLowerCase()) continue;
     if (!requestedDate && requestedYear && !new RegExp("\\b" + requestedYear + "\\b").test(text)) continue;
@@ -710,7 +710,7 @@ export function selectLiquidityEvidence(question, blocks) {
     if (Math.abs(componentSum - numeric[0]) > 0.2) continue;
 
     const format = value => value.includes(".")
-      ? value.replace(/(\\.\\d)0+$/, "$1")
+      ? value.replace(/(\.\d)0+$/, "$1")
       : value;
     const formatted = amounts.map(format);
     const components = [
