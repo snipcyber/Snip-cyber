@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 
 process.env.SUPABASE_URL ||= "https:" + "/" + "/test.supabase.co";
@@ -148,6 +149,70 @@ test("PDF endpoint rejects concurrent requests with missing reservations before 
   }
 });
 
+
+test("anonymous PDF reservations also reject concurrent replay", async () => {
+  const originalFetch = globalThis.fetch;
+  const installKey = "snip-anonymous-install-test";
+  const installHash = createHash("sha256").update(installKey).digest("hex");
+  let authChecks = 0;
+  let reservationChecks = 0;
+  let pdfFetches = 0;
+  let claimed = false;
+
+  globalThis.fetch = async (rawUrl, options) => {
+    const url = String(rawUrl);
+    if (url.endsWith("/auth/v1/user")) {
+      authChecks += 1;
+      throw new Error("Anonymous requests must not call Supabase Auth");
+    }
+    if (url.includes("/rest/v1/snip_anonymous_usage_reservations?")) {
+      reservationChecks += 1;
+      assert.equal(options.method, "PATCH");
+      const parsed = new URL(url);
+      assert.equal(parsed.searchParams.get("install_hash"), "eq." + installHash);
+      if (claimed) return new Response("[]", { status: 200 });
+      claimed = true;
+      return new Response(JSON.stringify([{ id: TEST_RESERVATION }]), { status: 200 });
+    }
+    throw new Error("Unexpected network request: " + url);
+  };
+
+  try {
+    const concurrency = 25;
+    const results = await Promise.all(
+      Array.from({ length: concurrency }, async (_, index) => {
+        const response = createResponse();
+        await pdfFindHandler({
+          method: "POST",
+          headers: { "x-snip-extensionpay-key": installKey },
+          body: {
+            url: "https://example.com/anonymous-" + index + ".pdf",
+            reservation_id: TEST_RESERVATION,
+            question: "What is the key disclosure?"
+          }
+        }, response, {
+          fetchImpl: async () => {
+            pdfFetches += 1;
+            return new Response("not a PDF", {
+              status: 200,
+              headers: { "content-type": "text/plain" }
+            });
+          }
+        });
+        return response;
+      })
+    );
+
+    assert.equal(results.length, concurrency);
+    assert.equal(authChecks, 0);
+    assert.equal(reservationChecks, concurrency);
+    assert.equal(pdfFetches, 1);
+    assert.equal(results.filter(result => result.statusCode === 415).length, 1);
+    assert.equal(results.filter(result => result.statusCode === 403).length, concurrency - 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("PDF endpoint survives stepped concurrency bursts with distinct reservations", async () => {
   const originalFetch = globalThis.fetch;
