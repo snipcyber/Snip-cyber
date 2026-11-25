@@ -35,7 +35,8 @@ function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
   if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
     assert.equal(options.method, "PATCH");
-    const id = new URL(String(url)).searchParams.get("id")?.replace(/^eq\\./, "");
+    const idFilter = new URL(String(url)).searchParams.get("id");
+    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
     return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
   }
   return null;
