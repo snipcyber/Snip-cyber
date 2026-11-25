@@ -266,3 +266,50 @@ test("multilingual question terms retain Unicode words for candidate ranking", a
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("hybrid search separates lowercase sentence starts in PDF and web evidence", async () => {
+  const originalFetch = globalThis.fetch;
+  let embeddedPassages = [];
+  globalThis.fetch = async (url, options) => {
+    const supabase = mockSupabase(url, options);
+    if (supabase) return supabase;
+    if (String(url).includes("/v1/embeddings")) {
+      const { input } = JSON.parse(options.body);
+      embeddedPassages = input.slice(1);
+      return new Response(JSON.stringify({
+        data: input.map((_, index) => ({ index, embedding: [1, 0, 0] }))
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({
+      output_text: JSON.stringify({ evidence: [] })
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const response = createResponse();
+    await findHandler({
+      method: "POST",
+      body: {
+        reservation_id: TEST_RESERVATION,
+        question: "How did revenue and operating profit change?",
+        blocks: [{
+          index: 0,
+          id: "source",
+          text: "Revenue increased by 4%. operating profit fell by 2%.",
+          section: "PDF page 1",
+          page: 1
+        }]
+      },
+      headers: { authorization: "Bearer test-token" }
+    }, response);
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(embeddedPassages, [
+      "Revenue increased by 4%.",
+      "operating profit fell by 2%."
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
