@@ -397,19 +397,12 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
       });
     }
 
-    const terms = [...new Set((question.toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []))];
-    const ranked = blocks.map((b, i) => {
-      const lower = b.text.toLowerCase();
-      const score = terms.reduce((n, term) => n + (lower.includes(term) ? 1 : 0), 0);
-      return { b, i, score };
-    }).sort((a, b) => b.score - a.score || a.i - b.i);
-    const chosen = new Map();
-    for (const item of ranked.slice(0, 50)) {
-      for (const neighbor of [blocks[item.i - 1], item.b, blocks[item.i + 1]]) {
-        if (neighbor) chosen.set(neighbor.id, neighbor);
-      }
-    }
-    const payloadBlocks = [...chosen.values()].slice(0, 70);
+    // Pass every extracted PDF block to hybrid retrieval. A lexical-only
+    // shortlist can discard the exact disclosure when the question paraphrases
+    // the report's wording. It also makes block_index refer to the original
+    // document index while the verifier sees a compacted array, which can map
+    // valid evidence to the wrong page. Let find.js rank the complete source.
+    const payloadBlocks = blocks;
     const analysisResponse = captureResponse();
     const analysisPromise = findHandler({
       method: "POST",
