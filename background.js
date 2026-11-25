@@ -138,9 +138,9 @@ async function getEntitlement() {
         return { plan: 'unlimited', limit: null, period: 'unlimited', paid: true };
       }
 
-      // A paid plan that doesn't match the two expected Snip plans is not
-      // silently treated as unlimited.
-      return { plan: 'pro', limit: PRO_MONTHLY_LIMIT, period: 'month', paid: true };
+      // Never grant a fallback tier for an unknown paid plan. The usage API
+      // independently validates ExtensionPay and rejects unrecognized plans.
+      throw new Error('Unrecognized paid Snip subscription plan. Please contact support.');
     }
 
     return { plan: 'free', limit: FREE_DAILY_LIMIT, period: 'day', paid: false };
