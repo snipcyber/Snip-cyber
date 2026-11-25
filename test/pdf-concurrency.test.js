@@ -22,12 +22,15 @@ function createResponse() {
   };
 }
 
-function mockSupabase(url) {
+function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) {
     return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
   }
   if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
-    return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
+    assert.equal(options.method, "PATCH");
+    const idFilter = new URL(String(url)).searchParams.get("id");
+    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
+    return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
   }
   throw new Error("Unexpected Supabase request: " + url);
 }
@@ -37,10 +40,20 @@ test("PDF endpoint remains isolated under 100 concurrent authorized requests", a
   let authChecks = 0;
   let reservationChecks = 0;
   let pdfFetches = 0;
-  globalThis.fetch = async url => {
-    if (String(url).endsWith("/auth/v1/user")) authChecks += 1;
-    else if (String(url).includes("/rest/v1/snip_usage_reservations?")) reservationChecks += 1;
-    return mockSupabase(url);
+  let claimed = false;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith("/auth/v1/user")) {
+      authChecks += 1;
+      return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
+    }
+    if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+      reservationChecks += 1;
+      assert.equal(options.method, "PATCH");
+      if (claimed) return new Response("[]", { status: 200 });
+      claimed = true;
+      return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
+    }
+    throw new Error("Unexpected Supabase request: " + url);
   };
 
   try {
@@ -72,10 +85,14 @@ test("PDF endpoint remains isolated under 100 concurrent authorized requests", a
     assert.equal(results.length, concurrency);
     assert.equal(authChecks, concurrency);
     assert.equal(reservationChecks, concurrency);
-    assert.equal(pdfFetches, concurrency);
-    for (const result of results) {
-      assert.equal(result.statusCode, 415, "request " + result.index + " should independently reject non-PDF content");
+    assert.equal(pdfFetches, 1, "one reservation must authorize only one backend operation");
+    assert.equal(results.filter(result => result.statusCode === 415).length, 1);
+    assert.equal(results.filter(result => result.statusCode === 403).length, concurrency - 1);
+    for (const result of results.filter(item => item.statusCode === 415)) {
       assert.match(result.body.error, /did not return a PDF/i);
+    }
+    for (const result of results.filter(item => item.statusCode === 403)) {
+      assert.match(result.body.error, /reservation invalid or expired/i);
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -136,7 +153,7 @@ test("PDF endpoint survives stepped concurrency bursts with distinct reservation
   const originalFetch = globalThis.fetch;
   const authByBurst = [];
   const reservationByBurst = [];
-  globalThis.fetch = async rawUrl => {
+  globalThis.fetch = async (rawUrl, options) => {
     const url = String(rawUrl);
     if (url.endsWith("/auth/v1/user")) {
       authByBurst.push(url);
