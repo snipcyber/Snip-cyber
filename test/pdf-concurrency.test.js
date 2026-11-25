@@ -124,8 +124,8 @@ test("PDF endpoint rejects concurrent requests with missing reservations before 
       assert.equal(response.statusCode, 400);
       assert.match(response.body.error, /valid usage reservation is required/i);
     }
-    assert.equal(authChecks, concurrency);
-    assert.equal(reservationChecks, concurrency);
+    assert.equal(authChecks, 0, "missing reservation IDs should be rejected before authentication lookup");
+    assert.equal(reservationChecks, 0, "missing reservation IDs should be rejected before reservation lookup");
   } finally {
     globalThis.fetch = originalFetch;
   }
