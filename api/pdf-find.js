@@ -8,6 +8,7 @@ import {
   extractFinancialRows,
   extractFinancialRowsFromItems,
   extractPageLines,
+  extractPageColumnLines,
   isCashPositionLookup,
   selectLiquidityEvidence,
   selectPrimaryFinancialEvidence
@@ -316,6 +317,7 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
     const parsed = await withAbort(parsePromise, controller.signal);
     const split = String(parsed.text || "").split(/\[\[SNIP_PAGE_(\d+)\]\]/g);
     const blocks = [];
+    const liquiditySearchBlocks = [];
     const financialRows = [];
     const pagesWithoutText = [];
     let index = 0;
@@ -331,8 +333,31 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
       financialRows.push(...extractedRows);
       const pageBlocks = toBlocks(pageText, page);
       if (!pageBlocks.length) pagesWithoutText.push(page);
+      const pageBlockStart = blocks.length;
       for (const item of pageBlocks) {
         blocks.push({ id: `pdf-${page}-${index}`, index: index++, text: item.text, section: `PDF page ${page}`, page });
+      }
+
+      // Liquidity disclosures can sit in one column beside an unrelated table.
+      // Build a column-ordered search passage from PDF coordinates so rows from
+      // the neighbouring column cannot split "undrawn committed" apart.
+      if (pageItems) {
+        const columnLines = extractPageColumnLines(pageItems);
+        if (columnLines.length) {
+          const anchor = blocks
+            .slice(pageBlockStart)
+            .find(block => /\\bliquidity\\b/i.test(block.text) && /[£€$]/.test(block.text))
+            || blocks[pageBlockStart];
+          for (const item of toBlocks(columnLines.join("\\n"), page)) {
+            liquiditySearchBlocks.push({
+              id: anchor?.id || null,
+              index: Number.isInteger(anchor?.index) ? anchor.index : null,
+              text: item.text,
+              section: anchor?.section || `PDF page ${page}`,
+              page
+            });
+          }
+        }
       }
     }
     if (pagesWithoutText.length && process.env.SNIP_OCR_SPACE_API_KEY) {
@@ -344,13 +369,15 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
           for (const { page, text } of ocrPages) {
             if (!missing.has(page)) continue;
             for (const item of toBlocks(text, page)) {
-              blocks.push({
+              const ocrBlock = {
                 id: `pdf-${page}-${index}`,
                 index: index++,
                 text: item.text,
                 section: `PDF page ${page}`,
                 page
-              });
+              };
+              blocks.push(ocrBlock);
+              liquiditySearchBlocks.push(ocrBlock);
             }
           }
         }
@@ -366,7 +393,7 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
       return res.status(422).json({ error: message });
     }
 
-    const liquidity = selectLiquidityEvidence(question, blocks);
+    const liquidity = selectLiquidityEvidence(\n      question,\n      liquiditySearchBlocks.length ? liquiditySearchBlocks : blocks\n    );
     if (liquidity) {
       const { row } = liquidity;
       const evidence = {
