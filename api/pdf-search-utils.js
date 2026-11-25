@@ -659,3 +659,86 @@ sourceQuote: row.text,
 row
 };
 }
+
+// Deterministic extraction for explicit liquidity-composition disclosures.
+// We only return a result when the total and all three named components are
+// present in the same source passage, use the same currency, and reconcile
+// within normal one-decimal rounding tolerance.
+export function selectLiquidityEvidence(question, blocks) {
+  const q = normalized(question);
+  if (
+    !/\bliquidity\b/i.test(q) ||
+    !/\b(?:what made up|compris|component|break ?down|composition|consist of|include)\b/i.test(q)
+  ) return null;
+
+  const requestedDate = String(question || "").match(
+    /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/i
+  )?.[0] || null;
+  const requestedYear = requestedDate?.match(/20\d{2}/)?.[0] ||
+    String(question || "").match(/\b20\d{2}\b/)?.[0] || null;
+
+  const money = "(£|€|\\$)\\s*([\\d,]+(?:\\.\\d+)?)\\s*m\\b";
+  const totalPattern = new RegExp("\\b(?:total\\s+)?liquidity\\s+of\\s+" + money, "i");
+  const cashPattern = new RegExp("\\bcash\\s+and\\s+cash\\s+equivalents\\s+(?:of\\s+)?" + money, "i");
+  const committedPattern = new RegExp("\\bundrawn\\s+committed\\b[^.;]*?\\b(?:facility|facilities)\\s+(?:of|amounting to)\\s+" + money, "i");
+  const uncommittedPattern = new RegExp("\\bundrawn\\s+uncommitted\\s+facilities?\\s+(?:of|amounting to)\\s+" + money, "i");
+
+  const candidates = [];
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const text = String(block?.text || "").replace(/\\s+/g, " ").trim();
+    if (!text) continue;
+    const total = text.match(totalPattern);
+    const cash = text.match(cashPattern);
+    const committed = text.match(committedPattern);
+    const uncommitted = text.match(uncommittedPattern);
+    if (!total || !cash || !committed || !uncommitted) continue;
+
+    const date = text.match(
+      /\\b\\d{1,2}\\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\\s+20\\d{2}\\b/i
+    )?.[0] || null;
+    if (requestedDate && date?.toLowerCase() !== requestedDate.toLowerCase()) continue;
+    if (!requestedDate && requestedYear && !new RegExp("\\b" + requestedYear + "\\b").test(text)) continue;
+
+    const matches = [total, cash, committed, uncommitted];
+    const currency = total[1];
+    if (matches.some(match => match[1] !== currency)) continue;
+    const amounts = matches.map(match => match[2].replace(/,/g, ""));
+    const numeric = amounts.map(Number);
+    if (numeric.some(value => !Number.isFinite(value))) continue;
+    const componentSum = numeric.slice(1).reduce((sum, value) => sum + value, 0);
+    // Reported rounded components may differ from the rounded total by 0.1m.
+    if (Math.abs(componentSum - numeric[0]) > 0.2) continue;
+
+    const format = value => value.includes(".")
+      ? value.replace(/(\\.\\d)0+$/, "$1")
+      : value;
+    const formatted = amounts.map(format);
+    const components = [
+      { label: "Cash and cash equivalents", amount: currency + formatted[1] + "m" },
+      { label: "Undrawn committed syndicated bank revolving credit facility", amount: currency + formatted[2] + "m" },
+      { label: "Undrawn uncommitted facilities", amount: currency + formatted[3] + "m" }
+    ];
+    const period = date || requestedYear || null;
+    const answer = "Total liquidity: " + currency + formatted[0] + "m. " +
+      components.map(item => item.label + ": " + item.amount).join("; ") + ".";
+
+    candidates.push({
+      answer,
+      period,
+      components,
+      sourceQuote: text,
+      row: {
+        id: block.id || null,
+        index: Number.isInteger(Number(block.index)) ? Number(block.index) : null,
+        text,
+        page: Number(block.page),
+        section: block.section || "PDF"
+      }
+    });
+  }
+
+  candidates.sort((a, b) =>
+    (a.row.page || Number.MAX_SAFE_INTEGER) - (b.row.page || Number.MAX_SAFE_INTEGER)
+  );
+  return candidates[0] || null;
+}
