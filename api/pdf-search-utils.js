@@ -731,6 +731,7 @@ export function selectLiquidityEvidence(question, blocks) {
     "\\bundrawn\\s+committed\\b[\\s\\S]{0,500}?\\b(?:revolving\\s+credit\\s+)?facility\\s+(?:of|amounting to)\\s+" + money,
     "i"
   );
+  const uncommittedPattern = new RegExp("\\bundrawn\\s+uncommitted\\s+facilities?\\s+(?:of|amounting to)\\s+" + money, "i");
 
   // A single printed paragraph may be split into multiple extracted PDF blocks.
   // Reassemble only within each physical page before matching the disclosure.
