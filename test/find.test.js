@@ -31,9 +31,13 @@ function createResponse() {
 
 const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
 const TEST_USER = "22222222-2222-4222-8222-222222222222";
-function mockSupabase(url) {
+function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
+  if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+    assert.equal(options.method, "PATCH");
+    const id = new URL(String(url)).searchParams.get("id")?.replace(/^eq\\./, "");
+    return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+  }
   return null;
 }
 
@@ -49,7 +53,7 @@ test("shortened model quote is rejected rather than returned as evidence", async
   const originalFetch = globalThis.fetch;
   const source = "Cash and cash equivalents 18 864.5 1,022.4";
   globalThis.fetch = async (url, options) => {
-    const supabase = mockSupabase(url);
+    const supabase = mockSupabase(url, options);
     if (supabase) return supabase;
     const embeddings = mockEmbeddings(url, options);
     if (embeddings) return embeddings;
@@ -83,7 +87,7 @@ test("shortened model quote is rejected rather than returned as evidence", async
 test("unrelated searches return no deterministic evidence", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
-    const supabase = mockSupabase(url);
+    const supabase = mockSupabase(url, options);
     if (supabase) return supabase;
     const embeddings = mockEmbeddings(url, options);
     if (embeddings) return embeddings;
@@ -116,7 +120,7 @@ test("candidate text budget preserves a highly relevant passage late in a long d
   const originalFetch = globalThis.fetch;
   let submittedInput = "";
   globalThis.fetch = async (_url, options) => {
-    const supabase = mockSupabase(_url);
+    const supabase = mockSupabase(_url, options);
     if (supabase) return supabase;
     const embeddings = mockEmbeddings(_url, options);
     if (embeddings) return embeddings;
@@ -166,7 +170,7 @@ test("an explicit section request never falls back to another section", async ()
   const originalFetch = globalThis.fetch;
   let openAiCalled = false;
   globalThis.fetch = async (url, options) => {
-    const supabase = mockSupabase(url);
+    const supabase = mockSupabase(url, options);
     if (supabase) return supabase;
     const embeddings = mockEmbeddings(url, options);
     if (embeddings) return embeddings;
@@ -198,7 +202,7 @@ test("an explicit section request searches only matching section metadata", asyn
   const originalFetch = globalThis.fetch;
   let submittedInput = "";
   globalThis.fetch = async (_url, options) => {
-    const supabase = mockSupabase(_url);
+    const supabase = mockSupabase(_url, options);
     if (supabase) return supabase;
     const embeddings = mockEmbeddings(_url, options);
     if (embeddings) return embeddings;
@@ -233,7 +237,7 @@ test("multilingual question terms retain Unicode words for candidate ranking", a
   let submittedInput = "";
   const source = "أعلنت الشركة عن نمو الإيرادات خلال السنة المالية.";
   globalThis.fetch = async (_url, options) => {
-    const supabase = mockSupabase(_url);
+    const supabase = mockSupabase(_url, options);
     if (supabase) return supabase;
     const embeddings = mockEmbeddings(_url, options);
     if (embeddings) return embeddings;
