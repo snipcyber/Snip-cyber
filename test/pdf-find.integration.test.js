@@ -356,6 +356,24 @@ test("PDF endpoint returns all components from the M&S FY2026 liquidity disclosu
     assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
     assert.ok(Number.isInteger(response.body.evidence[0].page));
     assert.ok(response.body.evidence[0].page >= 1);
+
+    // A missing requested period must not fall through to the generative
+    // retriever, which could otherwise return plausible components from a
+    // different disclosure or depend on an OpenAI key for this deterministic path.
+    const absentPeriod = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://example.com/ms-fy2026.pdf",
+        reservation_id: TEST_RESERVATION,
+        question: "At 28 March 2027, what made up total liquidity? Break down each component."
+      },
+      headers: { authorization: "Bearer test-token" }
+    }, absentPeriod, { fetchImpl: globalThis.fetch });
+
+    assert.equal(absentPeriod.statusCode, 200);
+    assert.equal(absentPeriod.body.answer, null);
+    assert.deepEqual(absentPeriod.body.evidence, []);
   } finally {
     globalThis.fetch = originalFetch;
   }
