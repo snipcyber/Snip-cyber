@@ -5,6 +5,7 @@ import {
   extractFinancialRows,
   extractFinancialRowsFromItems,
   extractPageLines,
+  selectLiquidityEvidence,
   selectPrimaryFinancialEvidence
 } from "../api/pdf-search-utils.js";
 
@@ -310,6 +311,59 @@ test("does not shortcut explanatory Group net debt questions to a financial row"
 
   assert.equal(
     selectPrimaryFinancialEvidence("Why did Group net debt increase?", rows),
+    null
+  );
+});
+
+
+test("extracts the requested M&S liquidity composition from the earliest matching disclosure", () => {
+  const blocks = [
+    {
+      id: "pdf-24-10", index: 10, page: 24, section: "PDF page 24",
+      text: "At 28 March 2026, the Group had liquidity of £1,872.1m (2024/25: £1,739.5m), comprising cash and cash equivalents of £997.2m (2024/25: £864.5m), an undrawn committed syndicated bank revolving credit facility of £850.0m (set to mature in December 2030), and undrawn uncommitted facilities amounting to £25.0m."
+    },
+    {
+      id: "pdf-145-88", index: 88, page: 145, section: "PDF page 145",
+      text: "At 28 March 2026, total liquidity was £1,872.2m, comprising cash and cash equivalents of £997.2m, an undrawn committed syndicated bank revolving credit facility of £850.0m and undrawn uncommitted facilities amounting to £25.0m."
+    }
+  ];
+
+  const result = selectLiquidityEvidence(
+    "At 28 March 2026, what made up Marks and Spencer Group plc total liquidity? Break down each component and its amount.",
+    blocks
+  );
+
+  assert.ok(result);
+  assert.equal(result.row.page, 24);
+  assert.equal(result.row.id, "pdf-24-10");
+  assert.equal(result.period, "28 March 2026");
+  assert.deepEqual(result.components, [
+    { label: "Cash and cash equivalents", amount: "£997.2m" },
+    { label: "Undrawn committed syndicated bank revolving credit facility", amount: "£850.0m" },
+    { label: "Undrawn uncommitted facilities", amount: "£25.0m" }
+  ]);
+  assert.match(result.answer, /Total liquidity: £1,872.1m/);
+  assert.equal(result.sourceQuote, blocks[0].text);
+});
+
+test("liquidity extraction respects the requested date and fails closed on incomplete or inconsistent passages", () => {
+  const base = "At 28 March 2026, the Group had liquidity of £1,872.1m, comprising cash and cash equivalents of £997.2m, an undrawn committed syndicated bank revolving credit facility of £850.0m, and undrawn uncommitted facilities amounting to £25.0m.";
+  const block = (text, page = 24) => [{ id: "p", index: 0, page, section: "PDF", text }];
+
+  assert.equal(
+    selectLiquidityEvidence("What made up liquidity at 29 March 2025?", block(base)),
+    null
+  );
+  assert.equal(
+    selectLiquidityEvidence("Break down total liquidity at 28 March 2026", block(base.replace("£25.0m", "£250.0m"))),
+    null
+  );
+  assert.equal(
+    selectLiquidityEvidence("Break down total liquidity at 28 March 2026", block(base.replace(", and undrawn uncommitted facilities amounting to £25.0m", ""))),
+    null
+  );
+  assert.equal(
+    selectLiquidityEvidence("Why did liquidity change at 28 March 2026?", block(base)),
     null
   );
 });
