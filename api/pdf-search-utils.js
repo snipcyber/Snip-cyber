@@ -193,7 +193,7 @@ export function extractPageColumnLines(items, headingPattern = /\bliquidity\b/i)
     for (const item of sorted) {
       const previous = current[current.length - 1];
       const gap = previous ? item.x - (previous.x + Math.max(0, previous.width)) : 0;
-      if (previous && gap >= 55) flush();
+      // A standalone section-heading token must begin its own fragment even when the PDF places it close to a neighbouring table header.\n      if (previous && (gap >= 55 || normalized(item.text) === "liquidity")) flush();
       current.push(item);
     }
     flush();
