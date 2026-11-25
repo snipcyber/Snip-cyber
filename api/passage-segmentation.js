@@ -6,12 +6,12 @@ const sentenceSegmenter = typeof Intl !== "undefined" && typeof Intl.Segmenter =
   : null;
 
 export function splitIntoPassages(value) {
-  const text = String(value || "").replace(/\\s+/g, " ").trim();
+  const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return [];
 
   const segments = sentenceSegmenter
     ? Array.from(sentenceSegmenter.segment(text), item => item.segment)
-    : text.split(/(?<=[.!?。！？])\\s+(?=[\\p{L}\\p{N}"“‘(])/u);
+    : text.split(/(?<=[.!?。！？])\s+(?=[\p{L}\p{N}"“‘(])/u);
 
   return segments.map(segment => segment.trim()).filter(Boolean);
 }
