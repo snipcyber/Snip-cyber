@@ -801,8 +801,11 @@ export function selectLiquidityEvidence(question, blocks) {
     let sourceStart = dateMatch && dateMatch.index <= firstMatch ? dateMatch.index : firstMatch;
     // Preserve the complete sentence boundary when the disclosure begins
     // with "At <date>" and ends with punctuation.
-    if (dateMatch && /^At\s+$/i.test(text.slice(Math.max(0, dateMatch.index - 4), dateMatch.index))) {
-      sourceStart = Math.max(0, dateMatch.index - 3);
+    const disclosureLeadIn = dateMatch
+      ? text.slice(0, dateMatch.index).match(/\bAt\s+$/i)
+      : null;
+    if (disclosureLeadIn) {
+      sourceStart = dateMatch.index - disclosureLeadIn[0].length;
     }
     const trailingPunctuation = text.slice(lastMatch).match(/^\s*[.!?]/)?.[0] || "";
     const sourceQuote = text.slice(sourceStart, lastMatch + trailingPunctuation.length).trim();
