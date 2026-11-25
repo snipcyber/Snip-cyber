@@ -306,3 +306,57 @@ test("OCR extraction reports provider processing errors clearly", async () => {
     else process.env.SNIP_OCR_SPACE_API_KEY = originalKey;
   }
 });
+
+
+const msLiquidityFixtureConfigured = Boolean(
+  process.env.SNIP_MS_PDF_PATH &&
+  fs.existsSync(process.env.SNIP_MS_PDF_PATH)
+);
+
+test("PDF endpoint returns all components from the M&S FY2026 liquidity disclosure", {
+  skip: !msLiquidityFixtureConfigured
+}, async () => {
+  const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async url => {
+    const supabaseResponse = mockSupabase(url);
+    if (supabaseResponse) return supabaseResponse;
+    return new Response(pdfBytes, {
+      status: 200,
+      headers: { "content-type": "application/pdf" }
+    });
+  };
+
+  try {
+    const response = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://example.com/ms-fy2026.pdf",
+        reservation_id: TEST_RESERVATION,
+        question: "At 28 March 2026, what made up Marks and Spencer Group plc total liquidity of £1,872.1m? Break down each component and its amount."
+      },
+      headers: { authorization: "Bearer test-token" }
+    }, response, { fetchImpl: globalThis.fetch });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.answer,
+      "Total liquidity: £1,872.1m. Cash and cash equivalents: £997.2m; Undrawn committed syndicated bank revolving credit facility: £850.0m; Undrawn uncommitted facilities: £25.0m."
+    );
+    assert.deepEqual(response.body.components, [
+      { label: "Cash and cash equivalents", amount: "£997.2m" },
+      { label: "Undrawn committed syndicated bank revolving credit facility", amount: "£850.0m" },
+      { label: "Undrawn uncommitted facilities", amount: "£25.0m" }
+    ]);
+    assert.match(response.body.sourceQuote, /liquidity of £1,872\.1m/);
+    assert.match(response.body.sourceQuote, /cash and cash equivalents of £997\.2m/);
+    assert.match(response.body.sourceQuote, /undrawn committed syndicated bank revolving credit facility of £850\.0m/);
+    assert.match(response.body.sourceQuote, /undrawn uncommitted facilities amounting to £25\.0m/);
+    assert.equal(response.body.evidence.length, 1);
+    assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
+    assert.ok(Number.isInteger(response.body.evidence[0].page));
+    assert.ok(response.body.evidence[0].page >= 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
