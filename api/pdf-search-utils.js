@@ -683,19 +683,33 @@ export function selectLiquidityEvidence(question, blocks) {
   const committedPattern = new RegExp("\\bundrawn\\s+committed\\b[^.;]*?\\b(?:facility|facilities)\\s+(?:of|amounting to)\\s+" + money, "i");
   const uncommittedPattern = new RegExp("\\bundrawn\\s+uncommitted\\s+facilities?\\s+(?:of|amounting to)\\s+" + money, "i");
 
-  const candidates = [];
+  // A single printed paragraph may be split into multiple extracted PDF blocks.
+  // Reassemble only within each physical page before matching the disclosure.
+  const pages = new Map();
   for (const block of Array.isArray(blocks) ? blocks : []) {
-    const text = String(block?.text || "").replace(/\s+/g, " ").trim();
+    const pageKey = Number.isFinite(Number(block?.page)) ? Number(block.page) : "unknown";
+    if (!pages.has(pageKey)) pages.set(pageKey, []);
+    pages.get(pageKey).push(block);
+  }
+
+  const candidates = [];
+  for (const [page, pageBlocks] of pages) {
+    const text = pageBlocks
+      .map(block => String(block?.text || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(" ");
     if (!text) continue;
+
     const total = text.match(totalPattern);
     const cash = text.match(cashPattern);
     const committed = text.match(committedPattern);
     const uncommitted = text.match(uncommittedPattern);
     if (!total || !cash || !committed || !uncommitted) continue;
 
-    const date = text.match(
+    const dateMatch = text.match(
       /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/i
-    )?.[0] || null;
+    );
+    const date = dateMatch?.[0] || null;
     if (requestedDate && date?.toLowerCase() !== requestedDate.toLowerCase()) continue;
     if (!requestedDate && requestedYear && !new RegExp("\\b" + requestedYear + "\\b").test(text)) continue;
 
@@ -724,17 +738,31 @@ export function selectLiquidityEvidence(question, blocks) {
     const answer = "Total liquidity: " + currency + formatted[0] + "m. " +
       components.map(item => item.label + ": " + item.amount).join("; ") + ".";
 
+    const firstMatch = Math.min(total.index, cash.index, committed.index, uncommitted.index);
+    const lastMatch = Math.max(
+      total.index + total[0].length,
+      cash.index + cash[0].length,
+      committed.index + committed[0].length,
+      uncommitted.index + uncommitted[0].length
+    );
+    const sourceStart = dateMatch && dateMatch.index <= firstMatch ? dateMatch.index : firstMatch;
+    const sourceQuote = text.slice(sourceStart, lastMatch).trim();
+    const anchor = pageBlocks.find(block =>
+      /\bliquidity\b/i.test(String(block?.text || "")) &&
+      /£|€|\$/.test(String(block?.text || ""))
+    ) || pageBlocks[0];
+
     candidates.push({
       answer,
       period,
       components,
-      sourceQuote: text,
+      sourceQuote,
       row: {
-        id: block.id || null,
-        index: Number.isInteger(Number(block.index)) ? Number(block.index) : null,
-        text,
-        page: Number(block.page),
-        section: block.section || "PDF"
+        id: anchor?.id || null,
+        index: Number.isInteger(Number(anchor?.index)) ? Number(anchor.index) : null,
+        text: sourceQuote,
+        page: Number(page),
+        section: anchor?.section || "PDF"
       }
     });
   }
