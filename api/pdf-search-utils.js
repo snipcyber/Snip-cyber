@@ -709,9 +709,9 @@ export function selectLiquidityEvidence(question, blocks) {
     const uncommitted = window.match(uncommittedPattern);
     if (!cash || !committed || !uncommitted) continue;
 
-    const dateMatch = text.match(
-      /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/i
-    );
+    const datePattern = /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/gi;
+    const datesBeforeTotal = [...text.slice(0, total.index).matchAll(datePattern)];
+    const dateMatch = datesBeforeTotal[datesBeforeTotal.length - 1] || null;
     const date = dateMatch?.[0] || null;
     if (requestedDate && date?.toLowerCase() !== requestedDate.toLowerCase()) continue;
     if (!requestedDate && requestedYear && !new RegExp("\\b" + requestedYear + "\\b").test(text)) continue;
