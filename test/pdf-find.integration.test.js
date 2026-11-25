@@ -86,7 +86,7 @@ test("PDF endpoint answers the M&S FY2026 cash question from the primary stateme
     assert.equal(response.body.answer, msExpected.answer);
     assert.equal(response.body.period, msExpected.period);
     assert.match(response.body.sourceQuote, /Cash and cash equivalents/i);
-    assert.ok(response.body.sourceQuote.replace(/\\s/g, "").includes("997.2"));
+    assert.ok(response.body.sourceQuote.replaceAll(" ", "").includes("997.2"));
     assert.equal(response.body.evidence[0].section, "Primary consolidated statement of financial position");
     assert.equal(response.body.evidence[0].page, msExpected.page);
     assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
