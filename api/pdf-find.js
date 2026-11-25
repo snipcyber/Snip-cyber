@@ -9,6 +9,7 @@ import {
   extractFinancialRowsFromItems,
   extractPageLines,
   isCashPositionLookup,
+  selectLiquidityEvidence,
   selectPrimaryFinancialEvidence
 } from "./pdf-search-utils.js";
 
@@ -363,6 +364,31 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
         ? "This PDF has no readable text. The configured OCR service could not extract any text."
         : "This PDF has no readable text. To enable scanned-PDF OCR, configure SNIP_OCR_SPACE_API_KEY. Scanned documents are sent to OCR.space only when this setting is enabled.";
       return res.status(422).json({ error: message });
+    }
+
+    const liquidity = selectLiquidityEvidence(question, blocks);
+    if (liquidity) {
+      const { row } = liquidity;
+      const evidence = {
+        block_index: row.index,
+        block_id: row.id,
+        passage: liquidity.sourceQuote,
+        text: liquidity.sourceQuote,
+        quote: liquidity.sourceQuote,
+        section: row.section,
+        page: row.page,
+        period: liquidity.period,
+        answer: liquidity.answer,
+        components: liquidity.components
+      };
+      return res.status(200).json({
+        answer: liquidity.answer,
+        period: liquidity.period,
+        components: liquidity.components,
+        sourceQuote: liquidity.sourceQuote,
+        evidence: [evidence],
+        pageCount
+      });
     }
 
     const financial = selectPrimaryFinancialEvidence(question, financialRows);
