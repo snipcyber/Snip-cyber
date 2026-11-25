@@ -84,10 +84,18 @@ test("PDF endpoint remains isolated under 100 concurrent authorized requests", a
 
 test("PDF endpoint rejects concurrent requests with missing reservations before downloading", async () => {
   const originalFetch = globalThis.fetch;
-  let fetchCount = 0;
-  globalThis.fetch = async () => {
-    fetchCount += 1;
-    throw new Error("Missing reservations must be rejected before external fetches");
+  let authChecks = 0;
+  let reservationChecks = 0;
+  globalThis.fetch = async url => {
+    if (String(url).endsWith("/auth/v1/user")) {
+      authChecks += 1;
+      return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
+    }
+    if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+      reservationChecks += 1;
+      return new Response("[]", { status: 200 });
+    }
+    throw new Error("Unexpected network request: " + url);
   };
 
   try {
@@ -116,7 +124,8 @@ test("PDF endpoint rejects concurrent requests with missing reservations before 
       assert.equal(response.statusCode, 400);
       assert.match(response.body.error, /usage reservation/i);
     }
-    assert.equal(fetchCount, 0, "invalid reservations must be rejected before any Supabase or PDF network request");
+    assert.equal(authChecks, concurrency);
+    assert.equal(reservationChecks, concurrency);
   } finally {
     globalThis.fetch = originalFetch;
   }
