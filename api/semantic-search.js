@@ -1,4 +1,5 @@
 import { verifyUsageReservation } from "./usage-auth.js";
+import { splitIntoPassages } from "./passage-segmentation.js";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MODEL = "text-embedding-3-small";
@@ -37,10 +38,7 @@ export default async function handler(req, res) {
 
     for (let i = 0; i < blocks.length; i++) {
       const block = blocks[i];
-      const text = String(block?.text || "").replace(/\s+/g, " ").trim();
-      if (text.length < 15) continue;
-
-      const parts = text.split(/(?<=[.!?])\s+(?=[A-Z0-9"“‘(])/);
+      const parts = splitIntoPassages(block?.text);
       for (const part of parts) {
         const passage = part.trim();
         if (passage.length < 15) continue;
