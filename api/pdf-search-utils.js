@@ -751,10 +751,10 @@ export function selectLiquidityEvidence(question, blocks) {
     let sourceStart = dateMatch && dateMatch.index <= firstMatch ? dateMatch.index : firstMatch;
     // Preserve the complete sentence boundary when the disclosure begins
     // with "At <date>" and ends with punctuation.
-    if (dateMatch && /^At\\s+$/i.test(text.slice(Math.max(0, dateMatch.index - 4), dateMatch.index))) {
+    if (dateMatch && /^At\s+$/i.test(text.slice(Math.max(0, dateMatch.index - 4), dateMatch.index))) {
       sourceStart = Math.max(0, dateMatch.index - 3);
     }
-    const trailingPunctuation = text.slice(lastMatch).match(/^\\s*[.!?]/)?.[0] || "";
+    const trailingPunctuation = text.slice(lastMatch).match(/^\s*[.!?]/)?.[0] || "";
     const sourceQuote = text.slice(sourceStart, lastMatch + trailingPunctuation.length).trim();
     const anchor = pageBlocks.find(block =>
       /\bliquidity\b/i.test(String(block?.text || "")) &&
