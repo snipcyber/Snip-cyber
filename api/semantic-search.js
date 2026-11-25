@@ -1,10 +1,12 @@
+import { verifyUsageReservation } from "./usage-auth.js";
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const MODEL = "text-embedding-3-small";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Snip-ExtensionPay-Key");
 
   if (req.method === "OPTIONS") return res.status(204).end();
   if (req.method !== "POST") {
@@ -12,6 +14,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    const reservation = await verifyUsageReservation(req);
+    if (!reservation.ok) {
+      return res.status(reservation.status).json({ error: reservation.error });
+    }
     if (!OPENAI_API_KEY) {
       return res.status(500).json({ error: "Missing OPENAI_API_KEY" });
     }
