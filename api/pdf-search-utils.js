@@ -162,6 +162,51 @@ const joined = items
 return fallback.length ? [...positioned, ...fallback] : positioned;
 }
 
+// Reconstruct one PDF text column in reading order. On multi-column pages,
+// sorting every text row by vertical position interleaves unrelated columns;
+// that can split a sentence such as "an undrawn committed facility" apart.
+export function extractPageColumnLines(items, headingPattern = /\\bliquidity\\b/i) {
+  const rows = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const text = cleanLine(item?.str);
+    const x = Number(item?.transform?.[4]);
+    const y = Number(item?.transform?.[5]);
+    if (!text || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    let row = rows.find(candidate => Math.abs(candidate.y - y) < 1.5);
+    if (!row) {
+      row = { y, items: [] };
+      rows.push(row);
+    }
+    row.items.push({ x, y, width: Number(item?.width) || 0, text });
+  }
+
+  const fragments = [];
+  for (const row of rows) {
+    const sorted = row.items.sort((a, b) => a.x - b.x);
+    let current = [];
+    const flush = () => {
+      if (!current.length) return;
+      const text = current.map(item => item.text).join(" ").replace(/\\s+/g, " ").trim();
+      if (text) fragments.push({ y: row.y, x: current[0].x, text });
+      current = [];
+    };
+    for (const item of sorted) {
+      const previous = current[current.length - 1];
+      const gap = previous ? item.x - (previous.x + Math.max(0, previous.width)) : 0;
+      if (previous && gap >= 55) flush();
+      current.push(item);
+    }
+    flush();
+  }
+
+  const heading = fragments.find(fragment => headingPattern.test(fragment.text));
+  if (!heading) return [];
+  return fragments
+    .filter(fragment => Math.abs(fragment.x - heading.x) <= 75)
+    .sort((a, b) => b.y - a.y)
+    .map(fragment => fragment.text);
+}
+
 export function classifyFinancialSection(pageText) {
 const lines = String(pageText || "")
 .split(/\n+/)
@@ -680,7 +725,12 @@ export function selectLiquidityEvidence(question, blocks) {
   const money = "(£|€|\\$)\\s*([\\d,]+(?:\\.\\d+)?)\\s*m\\b";
   const totalPattern = new RegExp("\\b(?:total\\s+)?liquidity\\s+of\\s+" + money, "i");
   const cashPattern = new RegExp("\\bcash\\s+and\\s+cash\\s+equivalents\\s+(?:of\\s+)?" + money, "i");
-  const committedPattern = new RegExp("\\bundrawn\\s+committed\\b[^.;]*?\\b(?:facility|facilities)\\s+(?:of|amounting to)\\s+" + money, "i");
+  // A decimal in a comparative amount must not stop the search before the
+  // committed facility later in the same disclosure.
+  const committedPattern = new RegExp(
+    "\\\\bundrawn\\\\s+committed\\\\b[\\\\s\\\\S]{0,500}?\\\\b(?:revolving\\\\s+credit\\\\s+)?facility\\\\s+(?:of|amounting to)\\\\s+" + money,
+    "i"
+  );
   const uncommittedPattern = new RegExp("\\bundrawn\\s+uncommitted\\s+facilities?\\s+(?:of|amounting to)\\s+" + money, "i");
 
   // A single printed paragraph may be split into multiple extracted PDF blocks.
