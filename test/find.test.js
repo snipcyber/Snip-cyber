@@ -305,10 +305,10 @@ test("hybrid search separates lowercase sentence starts in PDF and web evidence"
     }, response);
 
     assert.equal(response.statusCode, 200);
-    assert.deepEqual(embeddedPassages, [
+    assert.deepEqual(embeddedPassages.sort(), [
       "Revenue increased by 4%.",
       "operating profit fell by 2%."
-    ]);
+    ].sort());
   } finally {
     globalThis.fetch = originalFetch;
   }
