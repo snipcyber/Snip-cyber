@@ -346,7 +346,7 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
         if (columnLines.length) {
           const anchor = blocks
             .slice(pageBlockStart)
-            .find(block => /\\bliquidity\\b/i.test(block.text) && /[£€$]/.test(block.text))
+            .find(block => /\bliquidity\b/i.test(block.text) && /[£€$]/.test(block.text))
             || blocks[pageBlockStart];
           for (const item of toBlocks(columnLines.join("\n"), page)) {
             liquiditySearchBlocks.push({
