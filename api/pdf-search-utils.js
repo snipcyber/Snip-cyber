@@ -701,10 +701,13 @@ export function selectLiquidityEvidence(question, blocks) {
     if (!text) continue;
 
     const total = text.match(totalPattern);
-    const cash = text.match(cashPattern);
-    const committed = text.match(committedPattern);
-    const uncommitted = text.match(uncommittedPattern);
-    if (!total || !cash || !committed || !uncommitted) continue;
+    if (!total) continue;
+    // Keep all component matches tied to this total-liquidity disclosure.
+    const window = text.slice(total.index, total.index + 1800);
+    const cash = window.match(cashPattern);
+    const committed = window.match(committedPattern);
+    const uncommitted = window.match(uncommittedPattern);
+    if (!cash || !committed || !uncommitted) continue;
 
     const dateMatch = text.match(
       /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/i
@@ -738,9 +741,9 @@ export function selectLiquidityEvidence(question, blocks) {
     const answer = "Total liquidity: " + currency + formatted[0] + "m. " +
       components.map(item => item.label + ": " + item.amount).join("; ") + ".";
 
-    const firstMatch = Math.min(total.index, cash.index, committed.index, uncommitted.index);
-    const lastMatch = Math.max(
-      total.index + total[0].length,
+    const firstMatch = total.index;
+    const lastMatch = total.index + Math.max(
+      total[0].length,
       cash.index + cash[0].length,
       committed.index + committed[0].length,
       uncommitted.index + uncommitted[0].length
