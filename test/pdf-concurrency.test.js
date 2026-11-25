@@ -130,3 +130,66 @@ test("PDF endpoint rejects concurrent requests with missing reservations before 
     globalThis.fetch = originalFetch;
   }
 });
+
+
+test("PDF endpoint survives stepped concurrency bursts with distinct reservations", async () => {
+  const originalFetch = globalThis.fetch;
+  const authByBurst = [];
+  const reservationByBurst = [];
+  globalThis.fetch = async rawUrl => {
+    const url = String(rawUrl);
+    if (url.endsWith("/auth/v1/user")) {
+      authByBurst.push(url);
+      return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
+    }
+    if (url.includes("/rest/v1/snip_usage_reservations?")) {
+      reservationByBurst.push(url);
+      const parsed = new URL(url);
+      const id = parsed.searchParams.get("id")?.replace(/^eq\./, "");
+      return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+    }
+    throw new Error("Unexpected Supabase request: " + url);
+  };
+
+  try {
+    for (const concurrency of [10, 25, 50, 100]) {
+      let pdfFetches = 0;
+      const results = await Promise.all(
+        Array.from({ length: concurrency }, async (_, index) => {
+          const reservationId = "00000000-0000-4000-8000-" + String(index + 1).padStart(12, "0");
+          const response = createResponse();
+          await pdfFindHandler({
+            method: "POST",
+            headers: { authorization: "Bearer test-token" },
+            body: {
+              url: "https://example.com/burst-" + concurrency + "-" + index + ".pdf",
+              reservation_id: reservationId,
+              question: "What is the key disclosure?"
+            }
+          }, response, {
+            fetchImpl: async () => {
+              pdfFetches += 1;
+              return new Response("not a PDF", {
+                status: 200,
+                headers: { "content-type": "text/plain" }
+              });
+            }
+          });
+          return response;
+        })
+      );
+
+      assert.equal(results.length, concurrency);
+      assert.equal(pdfFetches, concurrency);
+      for (const response of results) {
+        assert.equal(response.statusCode, 415);
+        assert.match(response.body.error, /did not return a PDF/i);
+      }
+    }
+
+    assert.equal(authByBurst.length, 185);
+    assert.equal(reservationByBurst.length, 185);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
