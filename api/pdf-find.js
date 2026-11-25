@@ -391,6 +391,16 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
       });
     }
 
+    // Do not fall back to generative retrieval for liquidity-composition
+    // questions. If the complete, reconciled disclosure was not extracted,
+    // fail closed rather than risk returning components from another period.
+    const isLiquidityCompositionQuestion =
+      /\bliquidity\b/i.test(question) &&
+      /\b(?:what made up|compris|component|break ?down|composition|consist of|include)\b/i.test(question);
+    if (isLiquidityCompositionQuestion) {
+      return res.status(200).json({ answer: null, evidence: [], pageCount });
+    }
+
     const financial = selectPrimaryFinancialEvidence(question, financialRows);
     if (financial) {
       const { row } = financial;
