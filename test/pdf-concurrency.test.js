@@ -116,7 +116,7 @@ test("PDF endpoint rejects concurrent requests with missing reservations before 
       assert.equal(response.statusCode, 400);
       assert.match(response.body.error, /usage reservation/i);
     }
-    assert.equal(fetchCount, concurrency);
+    assert.equal(fetchCount, 0, "invalid reservations must be rejected before any Supabase or PDF network request");
   } finally {
     globalThis.fetch = originalFetch;
   }
