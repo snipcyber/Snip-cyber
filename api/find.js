@@ -1,4 +1,5 @@
 import { verifyUsageReservation } from "./usage-auth.js";
+import { splitIntoPassages } from "./passage-segmentation.js";
 
 async function getSemanticScores(question, items) {
   if (!OPENAI_API_KEY || !items.length) return [];
@@ -327,11 +328,7 @@ function extractQuestionTerms(question) {
    ============================================================ */
 
 function splitIntoSentences(text) {
-  return String(text || "")
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+(?=[A-Z0-9"“‘(])/g)
-    .map(sentence => sentence.trim())
-    .filter(Boolean);
+  return splitIntoPassages(text);
 }
 
 
