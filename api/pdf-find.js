@@ -348,7 +348,7 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
             .slice(pageBlockStart)
             .find(block => /\\bliquidity\\b/i.test(block.text) && /[£€$]/.test(block.text))
             || blocks[pageBlockStart];
-          for (const item of toBlocks(columnLines.join("\\n"), page)) {
+          for (const item of toBlocks(columnLines.join("\n"), page)) {
             liquiditySearchBlocks.push({
               id: anchor?.id || null,
               index: Number.isInteger(anchor?.index) ? anchor.index : null,
@@ -393,7 +393,10 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
       return res.status(422).json({ error: message });
     }
 
-    const liquidity = selectLiquidityEvidence(\n      question,\n      liquiditySearchBlocks.length ? liquiditySearchBlocks : blocks\n    );
+    const liquidity = selectLiquidityEvidence(
+      question,
+      liquiditySearchBlocks.length ? liquiditySearchBlocks : blocks
+    );
     if (liquidity) {
       const { row } = liquidity;
       const evidence = {
