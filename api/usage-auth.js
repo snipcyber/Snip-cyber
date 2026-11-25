@@ -57,8 +57,19 @@ export async function verifyUsageReservation(req) {
     select
   });
 
+  // Claim the reservation atomically. A read-only GET allowed the same
+  // still-reserved ID to trigger multiple paid backend operations in parallel.
+  // PostgreSQL's conditional UPDATE means exactly one concurrent request can
+  // move this row from reserved to processing.
   const check = await fetch(`${url}/rest/v1/${table}?${params}`, {
-    headers: { apikey: service, Authorization: `Bearer ${service}` },
+    method: "PATCH",
+    headers: {
+      apikey: service,
+      Authorization: `Bearer ${service}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify({ status: "processing" }),
     signal: AbortSignal.timeout(10000)
   });
 
