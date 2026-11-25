@@ -186,7 +186,7 @@ export function extractPageColumnLines(items, headingPattern = /\bliquidity\b/i)
     let current = [];
     const flush = () => {
       if (!current.length) return;
-      const text = current.map(item => item.text).join(" ").replace(/\\s+/g, " ").trim();
+      const text = current.map(item => item.text).join(" ").replace(/\s+/g, " ").trim();
       if (text) fragments.push({ y: row.y, x: current[0].x, text });
       current = [];
     };
@@ -199,7 +199,7 @@ export function extractPageColumnLines(items, headingPattern = /\bliquidity\b/i)
     flush();
   }
 
-  const heading = fragments.find(fragment => headingPattern.test(fragment.text));
+  // Match the standalone section heading, not a table-header fragment such as "length to Liquidity".\n  const heading = fragments.find(fragment => normalized(fragment.text) === "liquidity" && headingPattern.test(fragment.text));
   if (!heading) return [];
   return fragments
     .filter(fragment => Math.abs(fragment.x - heading.x) <= 75)
