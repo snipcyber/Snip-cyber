@@ -122,7 +122,7 @@ test("PDF endpoint rejects concurrent requests with missing reservations before 
     assert.equal(results.length, concurrency);
     for (const response of results) {
       assert.equal(response.statusCode, 400);
-      assert.match(response.body.error, /usage reservation/i);
+      assert.match(response.body.error, /reservation invalid or expired/i);
     }
     assert.equal(authChecks, concurrency);
     assert.equal(reservationChecks, concurrency);
