@@ -165,7 +165,7 @@ return fallback.length ? [...positioned, ...fallback] : positioned;
 // Reconstruct one PDF text column in reading order. On multi-column pages,
 // sorting every text row by vertical position interleaves unrelated columns;
 // that can split a sentence such as "an undrawn committed facility" apart.
-export function extractPageColumnLines(items, headingPattern = /\\bliquidity\\b/i) {
+export function extractPageColumnLines(items, headingPattern = /\bliquidity\b/i) {
   const rows = [];
   for (const item of Array.isArray(items) ? items : []) {
     const text = cleanLine(item?.str);
@@ -728,10 +728,9 @@ export function selectLiquidityEvidence(question, blocks) {
   // A decimal in a comparative amount must not stop the search before the
   // committed facility later in the same disclosure.
   const committedPattern = new RegExp(
-    "\\\\bundrawn\\\\s+committed\\\\b[\\\\s\\\\S]{0,500}?\\\\b(?:revolving\\\\s+credit\\\\s+)?facility\\\\s+(?:of|amounting to)\\\\s+" + money,
+    "\\bundrawn\\s+committed\\b[\\s\\S]{0,500}?\\b(?:revolving\\s+credit\\s+)?facility\\s+(?:of|amounting to)\\s+" + money,
     "i"
   );
-  const uncommittedPattern = new RegExp("\\bundrawn\\s+uncommitted\\s+facilities?\\s+(?:of|amounting to)\\s+" + money, "i");
 
   // A single printed paragraph may be split into multiple extracted PDF blocks.
   // Reassemble only within each physical page before matching the disclosure.
