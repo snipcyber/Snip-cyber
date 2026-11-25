@@ -5,6 +5,7 @@ import {
   extractFinancialRows,
   extractFinancialRowsFromItems,
   extractPageLines,
+  extractPageColumnLines,
   selectLiquidityEvidence,
   selectPrimaryFinancialEvidence
 } from "../api/pdf-search-utils.js";
@@ -315,6 +316,38 @@ test("does not shortcut explanatory Group net debt questions to a financial row"
   );
 });
 
+
+test("extracts liquidity disclosure from its own PDF column without interleaved table rows", () => {
+  const items = [];
+  const add = (str, x, y, width = str.length * 5) =>
+    items.push({ str, width, transform: [1, 0, 0, 1, x, y] });
+
+  add("Lease Liabilities", 40, 100, 100);
+  add("Liquidity", 320, 100, 55);
+  add("Full Line stores", 40, 90, 100);
+  add("At 28 March 2026, the Group had liquidity of £1,872.1m (2024/25: £1,739.5m),", 320, 90, 300);
+  add("Food stores", 40, 80, 100);
+  add("comprising cash and cash equivalents of £997.2m (2024/25: £864.5m),", 320, 80, 300);
+  add("Offices and warehouses", 40, 70, 130);
+  add("an undrawn", 320, 70, 65);
+  add("International", 40, 60, 100);
+  add("committed syndicated bank revolving credit facility of £850.0m (set to mature in December 2030),", 320, 60, 300);
+  add("Ocado Retail", 40, 50, 100);
+  add("and undrawn uncommitted facilities amounting to £25.0m.", 320, 50, 300);
+
+  const lines = extractPageColumnLines(items);
+  assert.equal(lines[0], "Liquidity");
+  assert.ok(lines.join(" ").includes("undrawn committed syndicated bank revolving credit facility of £850.0m"));
+  assert.ok(!lines.join(" ").includes("Food stores"));
+
+  const result = selectLiquidityEvidence(
+    "At 28 March 2026, what made up total liquidity? Break down each component.",
+    [{ id: "p26-1", index: 4, page: 26, section: "PDF page 26", text: lines.join(" ") }]
+  );
+  assert.ok(result);
+  assert.equal(result.row.page, 26);
+  assert.equal(result.components[1].amount, "£850.0m");
+});
 
 test("extracts the requested M&S liquidity composition from the earliest matching disclosure", () => {
   const blocks = [
