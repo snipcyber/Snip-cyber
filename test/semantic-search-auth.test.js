@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+process.env.SUPABASE_URL ||= "https://test.supabase.co";
+process.env.SUPABASE_ANON_KEY ||= "test-anon";
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
+
 const { default: semanticSearchHandler } = await import("../api/semantic-search.js");
 
 function createResponse() {
