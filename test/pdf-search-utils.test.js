@@ -347,6 +347,8 @@ test("extracts liquidity disclosure from its own PDF column without interleaved 
   assert.ok(result);
   assert.equal(result.row.page, 26);
   assert.equal(result.components[1].amount, "£850.0m");
+  assert.match(result.sourceQuote, /^At 28 March 2026/);
+  assert.doesNotMatch(result.sourceQuote, /Lease Liabilities|Food stores|International/);
 });
 
 test("extracts the requested M&S liquidity composition from the earliest matching disclosure", () => {
