@@ -24,6 +24,7 @@ export async function verifyUsageReservation(req) {
   let table;
   let ownerFilter;
   let select = 'id';
+  let reservationColumn = 'id';
 
   if (token) {
     const auth = await fetch(`${url}/auth/v1/user`, {
@@ -37,7 +38,8 @@ export async function verifyUsageReservation(req) {
     if (!user.id) return { ok: false, status: 401, error: 'Account verification failed.' };
 
     table = 'snip_usage_reservations';
-    select = 'id,plan';
+    select = 'reservation_id,plan';
+    reservationColumn = 'reservation_id';
     ownerFilter = { user_id: `eq.${user.id}` };
   } else {
     const installHash = await verifyAnonymousKey(key);
@@ -50,7 +52,7 @@ export async function verifyUsageReservation(req) {
   }
 
   const params = new URLSearchParams({
-    id: `eq.${id}`,
+    [reservationColumn]: `eq.${id}`,
     ...ownerFilter,
     status: 'eq.reserved',
     expires_at: `gt.${new Date().toISOString()}`,
