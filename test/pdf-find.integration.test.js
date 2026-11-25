@@ -66,7 +66,7 @@ test("PDF endpoint answers the M&S FY2026 cash question from the primary stateme
   const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
-  globalThis.fetch = async (url) => {
+  globalThis.fetch = async (url, options) => {
     const supabaseResponse = mockSupabase(url, options);
     if (supabaseResponse) return supabaseResponse;
     fetchCount += 1;
