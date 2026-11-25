@@ -35,5 +35,5 @@ jobs:
           SNIP_MS_PDF_PATH: ${{ runner.temp }}/ms-fy2026-annual-report.pdf
           SNIP_MS_EXPECTED_ANSWER: "£997.2m"
           SNIP_MS_EXPECTED_PERIOD: "28 March 2026"
-          SNIP_MS_EXPECTED_PAGE: "115"
+          SNIP_MS_EXPECTED_PAGE: "116"
         run: npm test
