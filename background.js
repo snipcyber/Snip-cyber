@@ -11,6 +11,9 @@ const UNLIMITED_PLAN = 'Unlimited';
 
 const SUPABASE_URL = globalThis.SNIP_CONFIG.supabaseUrl;
 const SUPABASE_ANON_KEY = globalThis.SNIP_CONFIG.supabaseAnonKey;
+const PREVIEW_API_HEADERS = globalThis.SNIP_CONFIG.vercelBypassSecret
+  ? { 'x-vercel-protection-bypass': globalThis.SNIP_CONFIG.vercelBypassSecret }
+  : {};
 
 async function supabaseAuth(path, options = {}) {
   const controller = new AbortController();
@@ -276,6 +279,7 @@ async function requestSnipEvidence(question, blocks, reservationId) {
     const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/find`, {
       method: 'POST',
       headers: {
+        ...PREVIEW_API_HEADERS,
         'Content-Type': 'application/json',
         "X-Snip-ExtensionPay-Key": apiKey,
         ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
@@ -359,6 +363,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/pdf-find`, {
           method: 'POST',
           headers: {
+            ...PREVIEW_API_HEADERS,
             'Content-Type': 'application/json',
             "X-Snip-ExtensionPay-Key": apiKey,
             ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
@@ -379,6 +384,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/summary`, {
           method: 'POST',
           headers: {
+            ...PREVIEW_API_HEADERS,
             'Content-Type': 'application/json',
             "X-Snip-ExtensionPay-Key": apiKey,
             ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
@@ -500,6 +506,7 @@ async function usageRequest(action, reservationId) {
   const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/usage`, {
     method: 'POST',
     headers: {
+      ...PREVIEW_API_HEADERS,
       'Content-Type': 'application/json',
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       "X-Snip-ExtensionPay-Key": apiKey
