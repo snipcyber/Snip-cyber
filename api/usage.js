@@ -80,7 +80,7 @@ export default async function handler(req, res) {
     }
 
     if (token) {
-      const userId = await verifyUser(token);
+      await verifyUser(token);
       const plan = (action === "status" || action === "reserve")
         ? await verifyPlan(key)
         : "free";
