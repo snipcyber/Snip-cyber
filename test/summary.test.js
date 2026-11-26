@@ -4,7 +4,6 @@ import test, { afterEach } from "node:test";
 
 process.env.SUPABASE_URL ||= "https://test.supabase.co";
 process.env.SUPABASE_ANON_KEY ||= "test-anon";
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 
 const { default: summaryHandler } = await import("../api/summary.js");
 const originalFetch = global.fetch;
@@ -124,12 +123,9 @@ test("Executive Brief analyzes the real M&S PDF and cites page-labelled source t
     if (address.endsWith("/auth/v1/user")) {
       return jsonResponse({ id: "summary-test-user" });
     }
-    if (address.includes("/rest/v1/snip_usage_reservations?")) {
-      assert.equal(options.method, "PATCH");
-      return jsonResponse([{
-        reservation_id: "11111111-1111-4111-8111-111111111111",
-        plan: "free"
-      }]);
+    if (address.includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
+      assert.equal(options.method, "POST");
+      return jsonResponse({ ok: true, reservation_id: "11111111-1111-4111-8111-111111111111", plan: "free" });
     }
     if (address === "https://example.com/annual-report.pdf") {
       return new Response(pdfBytes, {
