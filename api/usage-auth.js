@@ -1,5 +1,19 @@
 import { createHash } from 'node:crypto';
 
+export function usageReservationServiceHeaders(key) {
+  const headers = {
+    apikey: key,
+    "Content-Type": "application/json",
+    Prefer: "return=representation"
+  };
+  // Modern Supabase secret keys are opaque API keys, not JWTs. Sending them
+  // as Bearer tokens makes PostgREST attempt JWT parsing and reject requests.
+  if (!String(key).startsWith("sb_secret_")) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+  return headers;
+}
+
 async function verifyAnonymousKey(key) {
   if (!key || key.length > 512) return null;
 
@@ -11,7 +25,7 @@ export async function verifyUsageReservation(req) {
   const url = (process.env.SUPABASE_URL || "").trim();
   const anon = (process.env.SUPABASE_ANON_KEY || "").trim();
   const service = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
-  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const token = String(req.headers.authorization || '').replace(/^Bearer\\s+/i, '');
   const key = String(req.headers['x-snip-extensionpay-key'] || '');
   const id = String(req.body?.reservation_id || '');
 
@@ -65,12 +79,7 @@ export async function verifyUsageReservation(req) {
   // move this row from reserved to processing.
   const check = await fetch(`${url}/rest/v1/${table}?${params}`, {
     method: "PATCH",
-    headers: {
-      apikey: service,
-      Authorization: `Bearer ${service}`,
-      "Content-Type": "application/json",
-      Prefer: "return=representation"
-    },
+    headers: usageReservationServiceHeaders(service),
     body: JSON.stringify({ status: "processing" }),
     signal: AbortSignal.timeout(10000)
   });
