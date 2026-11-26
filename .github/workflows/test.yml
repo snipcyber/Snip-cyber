@@ -45,6 +45,7 @@ jobs:
           test -f dist-preview/background.js
           test -f dist-preview/pdf.js
           test -f dist-preview/snip-config.js
+          grep -q 'vercelBypassSecret: ""' dist-preview/snip-config.js
           ! grep -q "snip-ai-iota.vercel.app" dist-preview/background.js
           ! grep -q "snip-ai-iota.vercel.app" dist-preview/pdf.js
           ! grep -q "snip-ai-iota.vercel.app" dist-preview/manifest.json
