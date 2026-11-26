@@ -61,6 +61,19 @@ test("anonymous usage status hashes the installation key before calling Supabase
   assert.equal("Authorization" in calls[0].options.headers, false);
 });
 
+test("anonymous usage reserve uses the scoped anon RPC without a service key", async () => {
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    return jsonResponse({ ok: true, reservation_id: "22222222-2222-4222-8222-222222222222", used: 3, limit: 10 });
+  };
+  const res = await invoke({ action: "reserve" }, { "x-snip-extensionpay-key": "snip-installation-test" });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.plan, "anonymous");
+  assert.match(calls[0].url, /rpc\\/snip_api_anon_reserve_usage$/);
+  assert.equal(calls[0].options.headers.apikey, "test-anon");
+  assert.equal("Authorization" in calls[0].options.headers, false);
+});
 test("authenticated Pro reservation verifies the session and ExtensionPay plan", async () => {
   const calls = [];
   global.fetch = async (url, options = {}) => {
