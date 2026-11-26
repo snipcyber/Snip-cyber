@@ -4,7 +4,6 @@ import test from "node:test";
 process.env.OPENAI_API_KEY ||= "test-only";
 process.env.SUPABASE_URL ||= "https://test.supabase.co";
 process.env.SUPABASE_ANON_KEY ||= "test-anon";
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 const { default: findHandler } = await import("../api/find.js");
 
 function createResponse() {
@@ -33,11 +32,10 @@ const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
 const TEST_USER = "22222222-2222-4222-8222-222222222222";
 function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
-    assert.equal(options.method, "PATCH");
-    const idFilter = new URL(String(url)).searchParams.get("id");
-    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
-    return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+  if (String(url).includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
+    assert.equal(options.method, "POST");
+    const payload = JSON.parse(options.body || "{}");
+    return new Response(JSON.stringify({ ok: true, reservation_id: payload.p_reservation_id, plan: "free" }), { status: 200 });
   }
   return null;
 }
