@@ -156,6 +156,6 @@ test("Executive Brief analyzes the real M&S PDF and cites page-labelled source t
   assert.ok(res.body.pageCount > 0);
   assert.ok(res.body.pagesUsed > 0);
   assert.ok(aiRequest);
-  assert.match(aiRequest.messages[1].content, /\\[PDF page 1\\]/);
+  assert.match(aiRequest.messages[1].content, /\[PDF page 1\]/);
   assert.ok(calls.includes("https://api.openai.com/v1/chat/completions"));
 });
