@@ -1,5 +1,4 @@
 (() => {
-  const API = `${globalThis.SNIP_CONFIG.apiOrigin}/api/pdf-find`;
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   let pdfUrl = params.get('url') || '';
