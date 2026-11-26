@@ -34,6 +34,13 @@ async function invoke(method, body = {}, headers = {}) {
   return res;
 }
 
+function jsonResponse(value, status = 200) {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
+}
+
 test("Executive Brief supports preflight without contacting upstream services", async () => {
   let fetchCalls = 0;
   global.fetch = async () => {
