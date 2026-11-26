@@ -40,10 +40,12 @@ async function verifyPlan(key) {
   if (!response.ok) throw new Error("Subscription verification failed.");
   const user = await response.json();
   if (!user.paid) return "free";
-  const name = String(user.plan?.nickname || "").toLowerCase();
+  const name = String(user.plan?.nickname || "").trim().toLowerCase();
   const amount = Number(user.plan?.unitAmountCents || 0);
-  if (name === "unlimited" || amount === 1500) return "unlimited";
-  if (name === "pro" || amount === 500) return "pro";
+  const isMonthly = user.plan?.interval === "month" && Number(user.plan?.intervalCount) === 1;
+  const isUsd = String(user.plan?.currency || "").toLowerCase() === "usd";
+  if (isMonthly && isUsd && amount === 1500 && (!name || name === "unlimited")) return "unlimited";
+  if (isMonthly && isUsd && amount === 500 && (!name || name === "pro")) return "pro";
   throw new Error("Unrecognized paid subscription plan.");
 }
 
