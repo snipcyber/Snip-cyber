@@ -52,3 +52,36 @@ jobs:
           grep -q "snip-ai-git-feature-multilingual-passage-segm-0af0f2-snipdeploy.vercel.app" dist-preview/snip-config.js
           grep -q "xukvqizvofbafzxplnoh.supabase.co" dist-preview/snip-config.js
           grep -q "xukvqizvofbafzxplnoh.supabase.co" dist-preview/manifest.json
+      - name: Safe Preview POST guard smoke tests
+        env:
+          PREVIEW_API_ORIGIN: https://snip-ai-git-feature-multilingual-passage-segm-0af0f2-snipdeploy.vercel.app
+        run: |
+          set -euo pipefail
+          post_guard() {
+            route="$1"
+            payload="$2"
+            body_file="$RUNNER_TEMP/snip-preview-guard.json"
+            status=""
+            for attempt in $(seq 1 12); do
+              status="$(curl --silent --show-error --connect-timeout 10 --max-time 20 \
+                --output "$body_file" --write-out "%{http_code}" \
+                --request POST --header "Content-Type: application/json" \
+                --data "$payload" "$PREVIEW_API_ORIGIN$route" || true)"
+              if [ "$status" = "400" ]; then
+                grep -q "A valid usage reservation is required" "$body_file"
+                return 0
+              fi
+              if [ "$status" != "404" ] && [ "$status" != "502" ] && [ "$status" != "503" ]; then
+                cat "$body_file"
+                echo "Unexpected HTTP $status from $route"
+                return 1
+              fi
+              sleep 5
+            done
+            cat "$body_file"
+            echo "Preview guard check did not reach the expected 400 response for $route (last status: $status)"
+            return 1
+          }
+          post_guard "/api/find" '{"question":"preview guard probe","blocks":[{"text":"probe"}]}'
+          post_guard "/api/pdf-find" '{"question":"preview guard probe","url":"https://example.com/test.pdf"}'
+          post_guard "/api/summary" '{"url":"https://example.com/test.pdf"}'
