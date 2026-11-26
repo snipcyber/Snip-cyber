@@ -71,6 +71,10 @@ jobs:
                 grep -q "A valid usage reservation is required" "$body_file"
                 return 0
               fi
+              if [ -z "$status" ]; then
+                sleep 5
+                continue
+              fi
               if [ "$status" != "404" ] && [ "$status" != "502" ] && [ "$status" != "503" ]; then
                 cat "$body_file"
                 echo "Unexpected HTTP $status from $route"
