@@ -166,18 +166,7 @@ export function toBlocks(text, page) {
     .split(/\n\s*\n/)
     .flatMap(paragraph => splitIntoPassages(paragraph))
     .map(s => s.trim()).filter(s => s.length >= 15);
-  const result = [];
-  let buffer = "";
-  for (const part of parts) {
-    if (!buffer) buffer = part;
-    else if ((buffer + " " + part).length <= 1800) buffer += " " + part;
-    else {
-      result.push(buffer);
-      buffer = part;
-    }
-  }
-  if (buffer) result.push(buffer);
-  return result.map(text => ({ text, page }));
+  return parts.map(text => ({ text, page }));
 }
 
 export async function extractScannedPdfPages(bytes, signal) {
