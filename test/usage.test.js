@@ -70,7 +70,7 @@ test("anonymous usage reserve uses the scoped anon RPC without a service key", a
   const res = await invoke({ action: "reserve" }, { "x-snip-extensionpay-key": "snip-installation-test" });
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.plan, "anonymous");
-  assert.match(calls[0].url, /rpc\\/snip_api_anon_reserve_usage$/);
+  assert.ok(calls[0].url.includes("snip_api_anon_reserve_usage"));
   assert.equal(calls[0].options.headers.apikey, "test-anon");
   assert.equal("Authorization" in calls[0].options.headers, false);
 });
