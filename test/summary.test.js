@@ -30,7 +30,7 @@ function response() {
 
 async function invoke(method, body = {}, headers = {}) {
   const res = response();
-  await summaryHandler({ method, body, headers }, res);
+  await summaryHandler({ method, body, headers }, res, { fetchImpl: global.fetch, openAiFetch: global.fetch });
   return res;
 }
 
