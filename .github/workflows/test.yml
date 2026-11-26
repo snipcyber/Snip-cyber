@@ -47,5 +47,8 @@ jobs:
           test -f dist-preview/snip-config.js
           ! grep -q "snip-ai-iota.vercel.app" dist-preview/background.js
           ! grep -q "snip-ai-iota.vercel.app" dist-preview/pdf.js
+          ! grep -q "snip-ai-iota.vercel.app" dist-preview/manifest.json
+          ! grep -q "zgmctojqfzwvqilwjujp.supabase.co" dist-preview/manifest.json
           grep -q "snip-ai-git-feature-multilingual-passage-segm-0af0f2-snipdeploy.vercel.app" dist-preview/snip-config.js
           grep -q "xukvqizvofbafzxplnoh.supabase.co" dist-preview/snip-config.js
+          grep -q "xukvqizvofbafzxplnoh.supabase.co" dist-preview/manifest.json
