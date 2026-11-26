@@ -53,7 +53,7 @@ test("anonymous usage status hashes the installation key before calling Supabase
   assert.equal(res.body.plan, "anonymous");
   assert.equal(res.body.authenticated, false);
   assert.equal(calls.length, 1);
-  assert.match(calls[0].url, /rpc\/snip_anon_get_usage$/);
+  assert.match(calls[0].url, /rpc\/snip_api_anon_get_usage$/);
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     p_install_hash: createHash("sha256").update(key).digest("hex")
   });
@@ -84,7 +84,7 @@ test("authenticated Pro reservation verifies the session and ExtensionPay plan",
   assert.equal(calls.length, 3);
   assert.match(calls[0].url, /\/auth\/v1\/user$/);
   assert.match(calls[1].url, /extensionpay\.com\/extension\/snip\/api\/v2\/user/);
-  assert.match(calls[2].url, /rpc\/snip_reserve_usage$/);
+  assert.match(calls[2].url, /rpc\/snip_api_reserve_usage$/);
   assert.deepEqual(JSON.parse(calls[2].options.body), { p_plan: "pro" });
   assert.equal(calls[2].options.headers.apikey, "test-anon");
   assert.equal(calls[2].options.headers.Authorization, "Bearer valid-session");
@@ -128,7 +128,7 @@ test("authenticated commit does not re-check the subscription and scopes the RPC
 
   assert.equal(res.statusCode, 200);
   assert.equal(calls.length, 2);
-  assert.match(calls[1].url, /rpc\/snip_commit_usage$/);
+  assert.match(calls[1].url, /rpc\/snip_api_commit_usage$/);
   assert.deepEqual(JSON.parse(calls[1].options.body), {
     p_reservation_id: "11111111-1111-4111-8111-111111111111"
   });
@@ -227,7 +227,7 @@ test("ExtensionPay subscription lifecycle follows its documented paid flag", asy
     assert.equal(res.statusCode, scenario.expectedStatus, scenario.label);
     assert.equal(res.body.plan, scenario.expectedPlan, scenario.label);
     assert.equal(calls.length, 3, scenario.label);
-    assert.match(calls[2].url, /rpc\/snip_reserve_usage$/, scenario.label);
+    assert.match(calls[2].url, /rpc\/snip_api_reserve_usage$/, scenario.label);
     assert.equal(JSON.parse(calls[2].options.body).p_plan, scenario.expectedPlan, scenario.label);
   }
 });
