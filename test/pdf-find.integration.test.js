@@ -313,6 +313,96 @@ const msLiquidityFixtureConfigured = Boolean(
   fs.existsSync(process.env.SNIP_MS_PDF_PATH)
 );
 
+test("PDF endpoint isolates five concurrent requests and usage reservations", {
+  skip: !(
+    process.env.SNIP_MS_PDF_PATH &&
+    fs.existsSync(process.env.SNIP_MS_PDF_PATH)
+  )
+}, async () => {
+  const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
+  const reservationIds = [
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3",
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa4",
+    "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa5"
+  ];
+
+  const requests = reservationIds.map(reservationId => {
+    let fetchCount = 0;
+
+    const fetchImpl = async url => {
+      fetchCount += 1;
+      await new Promise(resolve => setTimeout(resolve, 15));
+
+      const target = String(url);
+
+      if (target.endsWith("/auth/v1/user")) {
+        return new Response(JSON.stringify({ id: TEST_USER }), {
+          status: 200
+        });
+      }
+
+      if (target.includes("/rest/v1/snip_usage_reservations?")) {
+        const parsed = new URL(target);
+        assert.equal(parsed.searchParams.get("id"), `eq.${reservationId}`);
+        return new Response(JSON.stringify([{
+          id: reservationId,
+          plan: "free"
+        }]), { status: 200 });
+      }
+
+      assert.equal(target, "https://example.com/ms-fy2026.pdf");
+      return new Response(pdfBytes, {
+        status: 200,
+        headers: { "content-type": "application/pdf" }
+      });
+    };
+
+    return {
+      reservationId,
+      fetchImpl,
+      getFetchCount: () => fetchCount
+    };
+  });
+
+  const question =
+    "At 28 March 2026, what made up Marks and Spencer Group plc total liquidity of £1,872.1m? Break down each component and its amount.";
+
+  const responses = await Promise.all(requests.map(async request => {
+    const response = createResponse();
+
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://example.com/ms-fy2026.pdf",
+        reservation_id: request.reservationId,
+        question
+      },
+      headers: { authorization: "Bearer test-token" }
+    }, response, { fetchImpl: request.fetchImpl });
+
+    return { response, request };
+  }));
+
+  for (const { response, request } of responses) {
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.answer,
+      "Total liquidity: £1,872.1m. Cash and cash equivalents: £997.2m; Undrawn committed syndicated bank revolving credit facility: £850.0m; Undrawn uncommitted facilities: £25.0m."
+    );
+    assert.deepEqual(response.body.components, [
+      { label: "Cash and cash equivalents", amount: "£997.2m" },
+      { label: "Undrawn committed syndicated bank revolving credit facility", amount: "£850.0m" },
+      { label: "Undrawn uncommitted facilities", amount: "£25.0m" }
+    ]);
+    assert.equal(response.body.evidence.length, 1);
+    assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
+    assert.ok(Number.isInteger(response.body.evidence[0].page));
+    assert.ok(response.body.evidence[0].page >= 1);
+    assert.equal(request.getFetchCount(), 3);
+  }
+});
+
 test("PDF endpoint returns all components from the M&S FY2026 liquidity disclosure", {
   skip: !msLiquidityFixtureConfigured
 }, async () => {

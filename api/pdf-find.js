@@ -264,7 +264,7 @@ export default async function handler(req, res, { fetchImpl = undiciFetch } = {}
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const reservation = await verifyUsageReservation(req);
+    const reservation = await verifyUsageReservation(req, fetchImpl);
     if (!reservation.ok) return res.status(reservation.status).json({ error: reservation.error });
 
 

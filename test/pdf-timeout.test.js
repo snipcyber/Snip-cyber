@@ -49,11 +49,21 @@ test("PDF download timeout returns 504", async () => {
 
   try {
     const response = createResponse();
-    await pdfFindHandler({
-      method: "POST",
-      body: { url: "https://reports.example.test/slow.pdf", question: "Find the answer", reservation_id: TEST_RESERVATION },
-      headers: { authorization: "Bearer test-token" }
-    }, response);
+   await pdfFindHandler({
+  method: "POST",
+  body: {
+    url: "https://reports.example.test/slow.pdf",
+    question: "Find the answer",
+    reservation_id: TEST_RESERVATION
+  },
+  headers: { authorization: "Bearer test-token" }
+}, response, {
+  fetchImpl: async (url, options) => new Promise((_, reject) => {
+    options.signal.addEventListener("abort", () => {
+      reject(new Error("fetch aborted"));
+    }, { once: true });
+  })
+});
 
     assert.equal(response.statusCode, 504);
     assert.match(response.body.error, /took too long/i);

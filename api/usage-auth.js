@@ -7,7 +7,7 @@ async function verifyAnonymousKey(key) {
   return createHash('sha256').update(key).digest('hex');
 }
 
-export async function verifyUsageReservation(req) {
+export async function verifyUsageReservation(req, fetchImpl = fetch) {
   const url = (process.env.SUPABASE_URL || "").trim();
   const anon = (process.env.SUPABASE_ANON_KEY || "").trim();
   const service = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
@@ -26,7 +26,7 @@ export async function verifyUsageReservation(req) {
   let select = 'id';
 
   if (token) {
-    const auth = await fetch(`${url}/auth/v1/user`, {
+    const auth = await fetchImpl(`${url}/auth/v1/user`, {
       headers: { apikey: anon, Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(10000)
     });
@@ -57,7 +57,7 @@ export async function verifyUsageReservation(req) {
     select
   });
 
-  const check = await fetch(`${url}/rest/v1/${table}?${params}`, {
+  const check = await fetchImpl(`${url}/rest/v1/${table}?${params}`, {
     headers: { apikey: service, Authorization: `Bearer ${service}` },
     signal: AbortSignal.timeout(10000)
   });
