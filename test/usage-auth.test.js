@@ -31,6 +31,7 @@ test("modern Supabase secret keys are not sent as Bearer JWTs when claiming rese
 
   assert.deepEqual(result, { ok: true, reservationId, plan: "pro" });
   assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.headers.Authorization, "Bearer user-session");
   const claim = calls[1].options;
   assert.equal(claim.method, "PATCH");
   assert.equal(claim.headers.apikey, "sb_secret_test-key");
