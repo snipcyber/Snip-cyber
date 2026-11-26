@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-const PREVIEW_API_ORIGIN = process.env.SNIP_PREVIEW_API_ORIGIN ||
+  /(^|\/)\.env(?:$|\.)/i, /\.zip$/i,
   "https://snip-ai-git-feature-multilingual-passage-segm-0af0f2-snipdeploy.vercel.app";
 const STAGING_SUPABASE_URL = process.env.SNIP_PREVIEW_SUPABASE_URL ||
   "https://xukvqizvofbafzxplnoh.supabase.co";
