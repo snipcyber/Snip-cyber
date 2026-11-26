@@ -1,6 +1,6 @@
 // Snip + ExtensionPay
 // ExtPay.js must be present in this folder.
-importScripts('ExtPay.js');
+importScripts('snip-config.js', 'ExtPay.js');
 
 const EXTPAY_ID = 'snip';
 const FREE_DAILY_LIMIT = 10;
@@ -9,8 +9,8 @@ const PRO_MONTHLY_LIMIT = 500;
 const PRO_PLAN = 'Pro';
 const UNLIMITED_PLAN = 'Unlimited';
 
-const SUPABASE_URL = 'https://zgmctojqfzwvqilwjujp.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_xwniBXIyDOOdzTMie7JVWQ_s9wzjnoE';
+const SUPABASE_URL = globalThis.SNIP_CONFIG.supabaseUrl;
+const SUPABASE_ANON_KEY = globalThis.SNIP_CONFIG.supabaseAnonKey;
 
 async function supabaseAuth(path, options = {}) {
   const controller = new AbortController();
@@ -273,7 +273,7 @@ async function requestSnipEvidence(question, blocks, reservationId) {
   const { session, apiKey } = await getSnipRequestIdentity();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch('https://snip-ai-iota.vercel.app/api/find', {
+    const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/find`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -356,7 +356,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'Usage reservation required.' });
           return;
         }
-        const response = await fetch('https://snip-ai-iota.vercel.app/api/pdf-find', {
+        const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/pdf-find`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -376,7 +376,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'Usage reservation required.' });
           return;
         }
-        const response = await fetch('https://snip-ai-iota.vercel.app/api/summary', {
+        const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/summary`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -497,7 +497,7 @@ chrome.action.onClicked.addListener(async tab => {
 
 async function usageRequest(action, reservationId) {
   const { session, apiKey } = await getSnipRequestIdentity();
-  const response = await fetch("https://snip-ai-iota.vercel.app/api/usage", {
+  const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/usage`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
