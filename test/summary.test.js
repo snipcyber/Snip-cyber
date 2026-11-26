@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test, { afterEach } from "node:test";
 
 process.env.SUPABASE_URL ||= "https://test.supabase.co";
@@ -100,4 +101,54 @@ test("Executive Brief rejects invalid authenticated reservations before download
   assert.deepEqual(res.body, { error: "Invalid session." });
   assert.equal(calls.length, 1);
   assert.match(calls[0].url, /\/auth\/v1\/user$/);
+});
+
+
+test("Executive Brief analyzes the real M&S PDF and cites page-labelled source text", {
+  skip: !process.env.SNIP_MS_PDF_PATH
+}, async () => {
+  process.env.OPENAI_API_KEY = "test-openai-key";
+  const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
+  const calls = [];
+  let aiRequest = null;
+  global.fetch = async (url, options = {}) => {
+    const address = String(url);
+    calls.push(address);
+    if (address.endsWith("/auth/v1/user")) {
+      return jsonResponse({ id: "summary-test-user" });
+    }
+    if (address.includes("/rest/v1/snip_usage_reservations?")) {
+      assert.equal(options.method, "PATCH");
+      return jsonResponse([{
+        reservation_id: "11111111-1111-4111-8111-111111111111",
+        plan: "free"
+      }]);
+    }
+    if (address === "https://example.com/annual-report.pdf") {
+      return new Response(pdfBytes, {
+        status: 200,
+        headers: { "content-type": "application/pdf" }
+      });
+    }
+    if (address === "https://api.openai.com/v1/chat/completions") {
+      aiRequest = JSON.parse(options.body);
+      return jsonResponse({
+        choices: [{ message: { content: "## Executive summary\\nA source-grounded test brief. (PDF p. 1)" } }]
+      });
+    }
+    throw new Error("Unexpected request: " + address);
+  };
+
+  const res = await invoke("POST", {
+    url: "https://example.com/annual-report.pdf",
+    reservation_id: "11111111-1111-4111-8111-111111111111"
+  }, { authorization: "Bearer valid-session" });
+
+  assert.equal(res.statusCode, 200);
+  assert.match(res.body.brief, /source-grounded test brief/);
+  assert.ok(res.body.pageCount > 0);
+  assert.ok(res.body.pagesUsed > 0);
+  assert.ok(aiRequest);
+  assert.match(aiRequest.messages[1].content, /\\[PDF page 1\\]/);
+  assert.ok(calls.includes("https://api.openai.com/v1/chat/completions"));
 });
