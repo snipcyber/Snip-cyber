@@ -1,14 +1,6 @@
 name: Staging reservation stress
 
 on:
-  push:
-    branches:
-      - fix/final-release-audit
-    paths:
-      - .github/workflows/staging-reservation-stress.yml
-      - scripts/staging-reservation-stress.mjs
-      - api/pdf-find.js
-      - api/usage-auth.js
   workflow_dispatch:
 
 permissions:
