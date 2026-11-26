@@ -229,7 +229,7 @@ test("ExtensionPay subscription lifecycle follows its documented paid flag", asy
     assert.equal(res.statusCode, scenario.expectedStatus, scenario.label);
     assert.equal(res.body.plan, scenario.expectedPlan, scenario.label);
     assert.equal(calls.length, 3, scenario.label);
-    assert.match(calls[2].url, /rpc\\/snip_reserve_usage$/, scenario.label);
+    assert.match(calls[2].url, /rpc\/snip_reserve_usage$/, scenario.label);
     assert.equal(JSON.parse(calls[2].options.body).p_plan, scenario.expectedPlan, scenario.label);
   }
 });
