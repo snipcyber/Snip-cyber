@@ -20,7 +20,29 @@ function mockSupabase(url, options = {}) {
   return null;
 }
 
-const { default: pdfFindHandler, publicDnsLookup, createPublicDnsLookup, extractScannedPdfPages } = await import("../api/pdf-find.js");
+const { default: pdfFindHandler, publicDnsLookup, createPublicDnsLookup, extractScannedPdfPages, toBlocks } = await import("../api/pdf-find.js");
+
+test("PDF block extraction splits lowercase sentence starts and CJK punctuation", () => {
+  const english = toBlocks(
+    "Revenue increased by 4%. operating profit fell by 2%.",
+    4
+  );
+  assert.deepEqual(english.map(item => item.text), [
+    "Revenue increased by 4%.",
+    "operating profit fell by 2%."
+  ]);
+  assert.ok(english.every(item => item.page === 4));
+
+  const cjk = toBlocks(
+    "第一句内容足够长用于测试。第二句内容也足够长用于测试！",
+    5
+  );
+  assert.deepEqual(cjk.map(item => item.text), [
+    "第一句内容足够长用于测试。",
+    "第二句内容也足够长用于测试！"
+  ]);
+  assert.ok(cjk.every(item => item.page === 5));
+});
 
 function createResponse() {
   return {
