@@ -13,7 +13,7 @@
     "<all_urls>",
     "https://extensionpay.com/*",
     "https://snip-ai-iota.vercel.app/*",
-    "https://xukvqizvofbafzxplnoh.supabase.co/*"
+    "https://zgmctojqfzwvqilwjujp.supabase.co/*"
   ],
   "background": {
     "service_worker": "background.js"
