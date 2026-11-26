@@ -1,5 +1,4 @@
 (() => {
-  const API = 'https://snip-ai-iota.vercel.app/api/pdf-find';
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   let pdfUrl = params.get('url') || '';
@@ -401,7 +400,8 @@
     const { text, spans } = pageWordSpans(pageText);
     const evidence = evidenceTokens(evidenceText);
     if (spans.length < 4 || evidence.length < 4) return null;
-    const pageNormalized = ` ${spans.map(span => span.token).join(' ')} `;
+    const pageTokens = spans.map(span => span.token.replace(/^\d+|\d+$/g, ''));
+    const pageNormalized = ` ${pageTokens.join(' ')} `;
     const maxWords = Math.min(20, evidence.length);
     for (let words = maxWords; words >= 4; words--) {
       for (let start = 0; start + words <= evidence.length; start++) {
@@ -412,12 +412,19 @@
           for (let pageStart = 0; pageStart + words <= spans.length; pageStart++) {
             let equal = true;
             for (let offset = 0; offset < words; offset++) {
-              if (spans[pageStart + offset].token !== evidence[start + offset]) { equal = false; break; }
+              if (pageTokens[pageStart + offset] !== evidence[start + offset]) { equal = false; break; }
             }
             if (equal) {
               const first = spans[pageStart];
               const last = spans[pageStart + words - 1];
-              return { query: text.slice(first.start, last.end).trim(), wordCount: words };
+              const firstRaw = text.slice(first.start, first.end);
+              const lastRaw = text.slice(last.start, last.end);
+              const leadingDigits = firstRaw.match(/^\d+/)?.[0].length || 0;
+              const trailingDigits = lastRaw.match(/\d+$/)?.[0].length || 0;
+              return {
+                query: text.slice(first.start + leadingDigits, last.end - trailingDigits).trim(),
+                wordCount: words
+              };
             }
           }
         }
@@ -431,10 +438,10 @@
   // label is not enough: when the backend supplied numeric cells, those values
   // must also occur near that label on the candidate page.
   function verifyFinancialRowEvidence(pageText, evidenceText, quote = '') {
-    const quoteText = String(quote || '').replace(/\s+/g, ' ').trim();
+    const quoteText = String(quote || '').replace(/\s+/g, ' ').trim().replace(/(\d)\.\s+(?=\d)/g, '$1.');
     const quoteHasCells = (quoteText.replace(/\b[A-Z]{1,3}\s*\d{1,3}\b/gi, ' ').match(/[-−]?\(?\d[\d,]*(?:\.\d+)?%?\)?/g) || []).length >= 2;
     const rowText = String(quoteHasCells ? quoteText : (evidenceText || quoteText)).replace(/\s+/g, ' ').trim();
-    const normalized = rowText.replace(/\s*\([^)]*(?:note|see|refer|page)[^)]*\)\s*/ig, ' ');
+    const normalized = rowText.replace(/\s*\([^)]*(?:note|see|refer|page)[^)]*\)\s*/ig, ' ').replace(/(\d)\.\s+(?=\d)/g, '$1.');
     const label = labelOnlyQuote(rowText);
     const labelTokens = evidenceTokens(label);
     const afterLabel = normalized.slice(Math.max(0, normalized.toLocaleLowerCase().indexOf(label.toLocaleLowerCase())) + label.length)
@@ -447,19 +454,42 @@
     const { text, spans } = pageWordSpans(pageText);
     let labelAt = -1;
     for (let i = 0; i <= spans.length - labelTokens.length; i++) {
-      if (labelTokens.every((token, offset) => spans[i + offset].token === token)) {
+      // Some PDFs concatenate the final digit of the preceding table cell
+      // with the first word of the next row (for example `9Cash`). Ignore only
+      // a numeric prefix/suffix when matching the label; keep the original
+      // span boundary so numeric verification still starts after the label.
+      if (labelTokens.every((token, offset) =>
+        spans[i + offset].token.replace(/^\d+|\d+$/g, '') === token
+      )) {
         labelAt = i;
         break;
       }
     }
     if (labelAt < 0) return { applicable: true, valid: false, reason: 'The row label is not present on the reported page.' };
 
-    const expectedNumbers = numericCells.map(value => value.replace(/[−,()%]/g, '').replace(/^\(/, '').replace(/\)$/, ''));
+    const expectedNumbers = numericCells.map(value => value.replace(/[−()%]/g, '').replace(/^\(/, '').replace(/\)$/, ''));
     const tail = text.slice(spans[labelAt + labelTokens.length - 1].end,
       Math.min(text.length, spans[labelAt + labelTokens.length - 1].end + 240));
-    const nearbyNumbers = (tail.match(/[-−]?\(?\d[\d,]*(?:\.\d+)?%?\)?/g) || [])
-      .map(value => value.replace(/[−,()%]/g, '').replace(/^\(/, '').replace(/\)$/, ''));
-    const missing = expectedNumbers.filter(value => !nearbyNumbers.includes(value));
+    const hasNearbyCell = value => {
+      let offset = 0;
+      while (offset < tail.length) {
+        const index = tail.indexOf(value, offset);
+        if (index < 0) return false;
+        const before = tail[index - 1] || '';
+        const after = tail[index + value.length] || '';
+        // Adjacent PDF table cells can be concatenated by text extraction
+        // (e.g. `1,022.42,591.5`). Accept the expected first cell only when
+        // the following digits form a separate thousands-grouped cell.
+        const nextCell = tail.slice(index + value.length);
+        if (!/[\d,]/.test(before) &&
+            (!/\d/.test(after) || /^\d{1,3},\d{3}(?:\.\d+)?(?:\s|$)/.test(nextCell))) {
+          return true;
+        }
+        offset = index + 1;
+      }
+      return false;
+    };
+    const missing = expectedNumbers.filter(value => !hasNearbyCell(value));
     if (missing.length > 0) {
       return { applicable: true, valid: false, reason: 'The reported row label is present, but its numeric evidence does not match nearby cells on that page.', missing };
     }
@@ -467,7 +497,7 @@
   }
 
   function labelOnlyQuote(quote) {
-    let label = String(quote || '').replace(/\s+/g, ' ').trim();
+    let label = String(quote || '').replace(/\s+/g, ' ').trim().replace(/(\d)\.\s+(?=\d)/g, '$1.');
     // Financial table quotes often combine a row label, note reference, and
     // numeric cell. Prefer the label itself so the selected highlight doesn't
     // spill over adjacent note numbers or financial values.
@@ -479,7 +509,7 @@
     return label.replace(/[\s,;:]+$/g, '').replace(/\s+/g, ' ').trim();
   }
 
-  async function findAndHighlightPassage(app, evidenceText, expectedPage, quote = '') {
+  async function findAndHighlightPassage(app, evidenceText, expectedPage, quote = '', strictPage = false) {
     const document = app.pdfDocument;
     if (!document || !app.eventBus || !app.findController) {
       return { found: false, reason: 'PDF.js search is not ready.' };
@@ -489,8 +519,10 @@
     // recovers when the backend reports a printed page number rather than the
     // physical PDF page index.
     const pageOrder = [expectedPage];
-    for (let page = 1; page <= document.numPages; page++) {
-      if (page !== expectedPage) pageOrder.push(page);
+    if (!strictPage) {
+      for (let page = 1; page <= document.numPages; page++) {
+        if (page !== expectedPage) pageOrder.push(page);
+      }
     }
 
     let best = null;
@@ -923,7 +955,7 @@
             diag('evidence-verification-failed', { page: candidate.page, reason: evidenceCheck.reason, missing: evidenceCheck.missing || [] });
             continue;
           }
-          highlight = await findAndHighlightPassage(app, candidate.text, candidate.page, candidate.quote);
+          highlight = await findAndHighlightPassage(app, candidate.text, candidate.page, candidate.quote, evidenceCheck.applicable);
         } catch (attemptError) {
           highlight = { found: false, query: highlight?.query || '', reason: attemptError?.message || String(attemptError), stage: 'viewer-or-search-exception' };
         }

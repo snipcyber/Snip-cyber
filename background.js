@@ -1,6 +1,6 @@
 // Snip + ExtensionPay
 // ExtPay.js must be present in this folder.
-importScripts('ExtPay.js');
+importScripts('snip-config.js', 'ExtPay.js');
 
 const EXTPAY_ID = 'snip';
 const FREE_DAILY_LIMIT = 10;
@@ -9,8 +9,11 @@ const PRO_MONTHLY_LIMIT = 500;
 const PRO_PLAN = 'Pro';
 const UNLIMITED_PLAN = 'Unlimited';
 
-const SUPABASE_URL = 'https://xukvqizvofbafzxplnoh.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_EXgBb4_2j6iKcKITBOjfpg_T7hhIcNk';
+const SUPABASE_URL = globalThis.SNIP_CONFIG.supabaseUrl;
+const SUPABASE_ANON_KEY = globalThis.SNIP_CONFIG.supabaseAnonKey;
+const PREVIEW_API_HEADERS = globalThis.SNIP_CONFIG.vercelBypassSecret
+  ? { 'x-vercel-protection-bypass': globalThis.SNIP_CONFIG.vercelBypassSecret }
+  : {};
 
 async function supabaseAuth(path, options = {}) {
   const controller = new AbortController();
@@ -129,12 +132,15 @@ async function getEntitlement() {
     if (user?.paid) {
       const nickname = String(user.plan?.nickname || '').trim().toLowerCase();
       const amount = Number(user.plan?.unitAmountCents || 0);
+      const isMonthly = user.plan?.interval === 'month' && Number(user.plan?.intervalCount) === 1;
 
-      // Prefer the plan nickname configured in ExtensionPay.
-      if (nickname === PRO_PLAN.toLowerCase() || amount === 500) {
+      // Paid access is limited to the configured USD monthly subscriptions.
+      if (isMonthly && String(user.plan?.currency || '').toLowerCase() === 'usd'
+          && amount === 500 && (!nickname || nickname === PRO_PLAN.toLowerCase())) {
         return { plan: 'pro', limit: PRO_MONTHLY_LIMIT, period: 'month', paid: true };
       }
-      if (nickname === UNLIMITED_PLAN.toLowerCase() || amount === 1500) {
+      if (isMonthly && String(user.plan?.currency || '').toLowerCase() === 'usd'
+          && amount === 1500 && (!nickname || nickname === UNLIMITED_PLAN.toLowerCase())) {
         return { plan: 'unlimited', limit: null, period: 'unlimited', paid: true };
       }
 
@@ -237,7 +243,14 @@ async function openPayment(plan) {
   const targetAmount = plan === 'unlimited' ? 1500 : 500;
   const plans = await extpay.getPlans();
   const list = Array.isArray(plans) ? plans : (Array.isArray(plans?.plans) ? plans.plans : []);
-  const matching = list.find(p => Number(p?.unitAmountCents) === targetAmount && String(p?.currency || '').toLowerCase() === 'usd');
+  const matching = list.find(p =>
+    Number(p?.unitAmountCents) === targetAmount
+    && String(p?.currency || '').toLowerCase() === 'usd'
+    && p?.interval === 'month'
+    && Number(p?.intervalCount) === 1
+    && (!p?.nickname || String(p.nickname).trim().toLowerCase() === (plan === 'unlimited' ? UNLIMITED_PLAN : PRO_PLAN).toLowerCase())
+  );
+  if (!matching) throw new Error('The selected monthly Snip plan is not configured in ExtensionPay.');
 
   // ExtensionPay can deep-link only when the plan has a real nickname.
   // Never invent one: if the account has no nickname, open the normal plan chooser.
@@ -273,9 +286,10 @@ async function requestSnipEvidence(question, blocks, reservationId) {
   const { session, apiKey } = await getSnipRequestIdentity();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch('https://snip-ai-iota.vercel.app/api/find', {
+    const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/find`, {
       method: 'POST',
       headers: {
+        ...PREVIEW_API_HEADERS,
         'Content-Type': 'application/json',
         "X-Snip-ExtensionPay-Key": apiKey,
         ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
@@ -356,9 +370,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'Usage reservation required.' });
           return;
         }
-        const response = await fetch('https://snip-ai-iota.vercel.app/api/pdf-find', {
+        const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/pdf-find`, {
           method: 'POST',
           headers: {
+            ...PREVIEW_API_HEADERS,
             'Content-Type': 'application/json',
             "X-Snip-ExtensionPay-Key": apiKey,
             ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
@@ -376,9 +391,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'Usage reservation required.' });
           return;
         }
-        const response = await fetch('https://snip-ai-iota.vercel.app/api/summary', {
+        const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/summary`, {
           method: 'POST',
           headers: {
+            ...PREVIEW_API_HEADERS,
             'Content-Type': 'application/json',
             "X-Snip-ExtensionPay-Key": apiKey,
             ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {})
@@ -497,9 +513,10 @@ chrome.action.onClicked.addListener(async tab => {
 
 async function usageRequest(action, reservationId) {
   const { session, apiKey } = await getSnipRequestIdentity();
-  const response = await fetch("https://snip-ai-iota.vercel.app/api/usage", {
+  const response = await fetch(`${globalThis.SNIP_CONFIG.apiOrigin}/api/usage`, {
     method: 'POST',
     headers: {
+      ...PREVIEW_API_HEADERS,
       'Content-Type': 'application/json',
       ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
       "X-Snip-ExtensionPay-Key": apiKey
