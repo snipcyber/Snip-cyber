@@ -68,7 +68,7 @@ test("authenticated Pro reservation verifies the session and ExtensionPay plan",
     calls.push({ url: address, options });
     if (address.endsWith("/auth/v1/user")) return jsonResponse({ id: "user-123" });
     if (address.includes("extensionpay.com")) {
-      return jsonResponse({ paid: true, plan: { nickname: "Pro", unitAmountCents: 500 } });
+      return jsonResponse({ paid: true, plan: { nickname: "Pro", unitAmountCents: 500, currency: "usd", interval: "month", intervalCount: 1 } });
     }
     return jsonResponse({ ok: true, reservation_id: "reservation-123", used: 1, limit: 500 });
   };
@@ -98,7 +98,7 @@ test("authenticated Unlimited reservation maps the $15 plan to unlimited", async
     calls.push(address);
     if (address.endsWith("/auth/v1/user")) return jsonResponse({ id: "user-456" });
     if (address.includes("extensionpay.com")) {
-      return jsonResponse({ paid: true, plan: { nickname: "Unlimited", unitAmountCents: 1500 } });
+      return jsonResponse({ paid: true, plan: { nickname: "Unlimited", unitAmountCents: 1500, currency: "usd", interval: "month", intervalCount: 1 } });
     }
     return jsonResponse({ ok: true, reservation_id: "reservation-456" });
   };
@@ -153,6 +153,30 @@ test("unknown paid ExtensionPay plans fail closed without creating a reservation
   assert.equal(res.statusCode, 503);
   assert.deepEqual(res.body, { error: "Usage service unavailable." });
   assert.equal(calls.length, 2);
+});
+
+test("yearly and one-time plans fail closed even when their nickname and price match", async () => {
+  for (const interval of ["year", "once"]) {
+    const calls = [];
+    global.fetch = async url => {
+      const address = String(url);
+      calls.push(address);
+      if (address.endsWith("/auth/v1/user")) return jsonResponse({ id: "user-nonmonthly" });
+      return jsonResponse({
+        paid: true,
+        plan: { nickname: "Pro", unitAmountCents: 500, currency: "usd", interval, intervalCount: interval === "once" ? null : 1 }
+      });
+    };
+
+    const res = await invoke({ action: "reserve" }, {
+      authorization: "Bearer valid-session",
+      "x-snip-extensionpay-key": "extensionpay-key"
+    });
+
+    assert.equal(res.statusCode, 503);
+    assert.deepEqual(res.body, { error: "Usage service unavailable." });
+    assert.equal(calls.length, 2, "must reject before creating a reservation");
+  }
 });
 
 test("anonymous usage requires an installation identity and rejects unknown actions", async () => {
