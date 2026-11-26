@@ -4,19 +4,16 @@ import test from "node:test";
 
 process.env.SUPABASE_URL ||= "https:" + "/" + "/test.supabase.co";
 process.env.SUPABASE_ANON_KEY ||= "test-anon";
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 
 const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
 const TEST_RESERVATION_2 = "33333333-3333-4333-8333-333333333333";
 const TEST_USER = "22222222-2222-4222-8222-222222222222";
 function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
-    assert.equal(options.method, "PATCH");
-    assert.deepEqual(JSON.parse(options.body || "{}"), { status: "processing" });
-    const idFilter = new URL(String(url)).searchParams.get("reservation_id");
-    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
-    return new Response(JSON.stringify([{ reservation_id: id, plan: "free" }]), { status: 200 });
+  if (String(url).includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
+    assert.equal(options.method, "POST");
+    const payload = JSON.parse(options.body || "{}");
+    return new Response(JSON.stringify({ ok: true, reservation_id: payload.p_reservation_id, plan: "free" }), { status: 200 });
   }
   return null;
 }
@@ -367,12 +364,8 @@ test("PDF endpoint isolates five concurrent requests and usage reservations", {
       const target = String(url);
       const supabaseResponse = mockSupabase(target, options);
       if (supabaseResponse) {
-        if (target.includes("/rest/v1/snip_usage_reservations?")) {
-          const parsed = new URL(target);
-          assert.equal(
-            parsed.searchParams.get("reservation_id"),
-            `eq.${reservationId}`
-          );
+        if (target.includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
+          assert.equal(JSON.parse(options.body).p_reservation_id, reservationId);
         }
         return supabaseResponse;
       }
