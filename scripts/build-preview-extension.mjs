@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-  /(^|\/)\.env(?:$|\.)/i, /\.zip$/i,
+const PREVIEW_API_ORIGIN = process.env.SNIP_PREVIEW_API_ORIGIN ||
   "https://snip-ai-git-feature-multilingual-passage-segm-0af0f2-snipdeploy.vercel.app";
 const STAGING_SUPABASE_URL = process.env.SNIP_PREVIEW_SUPABASE_URL ||
   "https://xukvqizvofbafzxplnoh.supabase.co";
@@ -32,7 +32,7 @@ if (apiOrigin === "https://snip-ai-iota.vercel.app" ||
 const excluded = [
   /^api\//, /^test\//, /^supabase\//, /^\.github\//, /^scripts\//,
   /^node_modules\//, /^dist-preview\//, /^package(?:-lock)?\.json$/,
-  /(^|\\/)\\.env(?:$|\\.)/i, /\\.zip$/i,
+  /(^|\/)\.env(?:$|\.)/i, /\.zip$/i,
   /^README(?:\..*)?$/i, /^\.gitignore$/
 ];
 const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
