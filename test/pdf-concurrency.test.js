@@ -1,0 +1,277 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import test from "node:test";
+
+process.env.SUPABASE_URL ||= "https:" + "/" + "/test.supabase.co";
+process.env.SUPABASE_ANON_KEY ||= "test-anon";
+process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
+
+const { default: pdfFindHandler } = await import("../api/pdf-find.js");
+
+const TEST_USER = "22222222-2222-4222-8222-222222222222";
+const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
+
+function createResponse() {
+  return {
+    statusCode: 200,
+    headers: {},
+    body: null,
+    setHeader(name, value) { this.headers[name] = value; },
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    end() { return this; }
+  };
+}
+
+function mockSupabase(url, options = {}) {
+  if (String(url).endsWith("/auth/v1/user")) {
+    return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
+  }
+  if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+    assert.equal(options.method, "PATCH");
+    const idFilter = new URL(String(url)).searchParams.get("id");
+    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
+    return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+  }
+  throw new Error("Unexpected Supabase request: " + url);
+}
+
+test("PDF endpoint remains isolated under 100 concurrent authorized requests", async () => {
+  const originalFetch = globalThis.fetch;
+  let authChecks = 0;
+  let reservationChecks = 0;
+  let pdfFetches = 0;
+  let claimed = false;
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith("/auth/v1/user")) {
+      authChecks += 1;
+      return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
+    }
+    if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+      reservationChecks += 1;
+      assert.equal(options.method, "PATCH");
+      if (claimed) return new Response("[]", { status: 200 });
+      claimed = true;
+      return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
+    }
+    throw new Error("Unexpected Supabase request: " + url);
+  };
+
+  try {
+    const concurrency = 100;
+    const results = await Promise.all(
+      Array.from({ length: concurrency }, async (_, index) => {
+        const response = createResponse();
+        await pdfFindHandler({
+          method: "POST",
+          headers: { authorization: "Bearer test-token" },
+          body: {
+            url: "https://example.com/load-test-" + index + ".pdf",
+            reservation_id: TEST_RESERVATION,
+            question: "What is the key disclosure?"
+          }
+        }, response, {
+          fetchImpl: async () => {
+            pdfFetches += 1;
+            return new Response("not a PDF", {
+              status: 200,
+              headers: { "content-type": "text/plain" }
+            });
+          }
+        });
+        return { index, statusCode: response.statusCode, body: response.body };
+      })
+    );
+
+    assert.equal(results.length, concurrency);
+    assert.equal(authChecks, concurrency);
+    assert.equal(reservationChecks, concurrency);
+    assert.equal(pdfFetches, 1, "one reservation must authorize only one backend operation");
+    assert.equal(results.filter(result => result.statusCode === 415).length, 1);
+    assert.equal(results.filter(result => result.statusCode === 403).length, concurrency - 1);
+    for (const result of results.filter(item => item.statusCode === 415)) {
+      assert.match(result.body.error, /did not return a PDF/i);
+    }
+    for (const result of results.filter(item => item.statusCode === 403)) {
+      assert.match(result.body.error, /reservation invalid or expired/i);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("PDF endpoint rejects concurrent requests with missing reservations before downloading", async () => {
+  const originalFetch = globalThis.fetch;
+  let authChecks = 0;
+  let reservationChecks = 0;
+  globalThis.fetch = async url => {
+    if (String(url).endsWith("/auth/v1/user")) {
+      authChecks += 1;
+      return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
+    }
+    if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+      reservationChecks += 1;
+      return new Response("[]", { status: 200 });
+    }
+    throw new Error("Unexpected network request: " + url);
+  };
+
+  try {
+    const concurrency = 100;
+    const results = await Promise.all(
+      Array.from({ length: concurrency }, async () => {
+        const response = createResponse();
+        await pdfFindHandler({
+          method: "POST",
+          headers: { authorization: "Bearer test-token" },
+          body: {
+            url: "https://example.com/report.pdf",
+            question: "What is the key disclosure?"
+          }
+        }, response, {
+          fetchImpl: async () => {
+            throw new Error("PDF must not be fetched without a reservation");
+          }
+        });
+        return response;
+      })
+    );
+
+    assert.equal(results.length, concurrency);
+    for (const response of results) {
+      assert.equal(response.statusCode, 400);
+      assert.match(response.body.error, /valid usage reservation is required/i);
+    }
+    assert.equal(authChecks, 0, "missing reservation IDs should be rejected before authentication lookup");
+    assert.equal(reservationChecks, 0, "missing reservation IDs should be rejected before reservation lookup");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test("anonymous PDF reservations also reject concurrent replay", async () => {
+  const originalFetch = globalThis.fetch;
+  const installKey = "snip-anonymous-install-test";
+  const installHash = createHash("sha256").update(installKey).digest("hex");
+  let authChecks = 0;
+  let reservationChecks = 0;
+  let pdfFetches = 0;
+  let claimed = false;
+
+  globalThis.fetch = async (rawUrl, options) => {
+    const url = String(rawUrl);
+    if (url.endsWith("/auth/v1/user")) {
+      authChecks += 1;
+      throw new Error("Anonymous requests must not call Supabase Auth");
+    }
+    if (url.includes("/rest/v1/snip_anonymous_usage_reservations?")) {
+      reservationChecks += 1;
+      assert.equal(options.method, "PATCH");
+      const parsed = new URL(url);
+      assert.equal(parsed.searchParams.get("install_hash"), "eq." + installHash);
+      if (claimed) return new Response("[]", { status: 200 });
+      claimed = true;
+      return new Response(JSON.stringify([{ id: TEST_RESERVATION }]), { status: 200 });
+    }
+    throw new Error("Unexpected network request: " + url);
+  };
+
+  try {
+    const concurrency = 25;
+    const results = await Promise.all(
+      Array.from({ length: concurrency }, async (_, index) => {
+        const response = createResponse();
+        await pdfFindHandler({
+          method: "POST",
+          headers: { "x-snip-extensionpay-key": installKey },
+          body: {
+            url: "https://example.com/anonymous-" + index + ".pdf",
+            reservation_id: TEST_RESERVATION,
+            question: "What is the key disclosure?"
+          }
+        }, response, {
+          fetchImpl: async () => {
+            pdfFetches += 1;
+            return new Response("not a PDF", {
+              status: 200,
+              headers: { "content-type": "text/plain" }
+            });
+          }
+        });
+        return response;
+      })
+    );
+
+    assert.equal(results.length, concurrency);
+    assert.equal(authChecks, 0);
+    assert.equal(reservationChecks, concurrency);
+    assert.equal(pdfFetches, 1);
+    assert.equal(results.filter(result => result.statusCode === 415).length, 1);
+    assert.equal(results.filter(result => result.statusCode === 403).length, concurrency - 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("PDF endpoint survives stepped concurrency bursts with distinct reservations", async () => {
+  const originalFetch = globalThis.fetch;
+  const authByBurst = [];
+  const reservationByBurst = [];
+  globalThis.fetch = async (rawUrl, options) => {
+    const url = String(rawUrl);
+    if (url.endsWith("/auth/v1/user")) {
+      authByBurst.push(url);
+      return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
+    }
+    if (url.includes("/rest/v1/snip_usage_reservations?")) {
+      reservationByBurst.push(url);
+      const parsed = new URL(url);
+      const id = parsed.searchParams.get("id")?.replace(/^eq\./, "");
+      return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+    }
+    throw new Error("Unexpected Supabase request: " + url);
+  };
+
+  try {
+    for (const concurrency of [10, 25, 50, 100]) {
+      let pdfFetches = 0;
+      const results = await Promise.all(
+        Array.from({ length: concurrency }, async (_, index) => {
+          const reservationId = "00000000-0000-4000-8000-" + String(index + 1).padStart(12, "0");
+          const response = createResponse();
+          await pdfFindHandler({
+            method: "POST",
+            headers: { authorization: "Bearer test-token" },
+            body: {
+              url: "https://example.com/burst-" + concurrency + "-" + index + ".pdf",
+              reservation_id: reservationId,
+              question: "What is the key disclosure?"
+            }
+          }, response, {
+            fetchImpl: async () => {
+              pdfFetches += 1;
+              return new Response("not a PDF", {
+                status: 200,
+                headers: { "content-type": "text/plain" }
+              });
+            }
+          });
+          return response;
+        })
+      );
+
+      assert.equal(results.length, concurrency);
+      assert.equal(pdfFetches, concurrency);
+      for (const response of results) {
+        assert.equal(response.statusCode, 415);
+        assert.match(response.body.error, /did not return a PDF/i);
+      }
+    }
+
+    assert.equal(authByBurst.length, 185);
+    assert.equal(reservationByBurst.length, 185);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

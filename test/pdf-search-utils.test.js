@@ -5,6 +5,8 @@ import {
   extractFinancialRows,
   extractFinancialRowsFromItems,
   extractPageLines,
+  extractPageColumnLines,
+  selectLiquidityEvidence,
   selectPrimaryFinancialEvidence
 } from "../api/pdf-search-utils.js";
 
@@ -310,6 +312,115 @@ test("does not shortcut explanatory Group net debt questions to a financial row"
 
   assert.equal(
     selectPrimaryFinancialEvidence("Why did Group net debt increase?", rows),
+    null
+  );
+});
+
+
+test("extracts liquidity disclosure from its own PDF column without interleaved table rows", () => {
+  const items = [];
+  const add = (str, x, y, width = str.length * 5) =>
+    items.push({ str, width, transform: [1, 0, 0, 1, x, y] });
+
+  add("Lease Liabilities", 40, 100, 100);
+  add("Liquidity", 320, 100, 55);
+  add("Full Line stores", 40, 90, 100);
+  add("At 28 March 2026, the Group had liquidity of £1,872.1m (2024/25: £1,739.5m),", 320, 90, 300);
+  add("Food stores", 40, 80, 100);
+  add("comprising cash and cash equivalents of £997.2m (2024/25: £864.5m),", 320, 80, 300);
+  add("Offices and warehouses", 40, 70, 130);
+  add("an undrawn", 320, 70, 65);
+  add("International", 40, 60, 100);
+  add("committed syndicated bank revolving credit facility of £850.0m (set to mature in December 2030),", 320, 60, 300);
+  add("Ocado Retail", 40, 50, 100);
+  add("and undrawn uncommitted facilities amounting to £25.0m.", 320, 50, 300);
+
+  const lines = extractPageColumnLines(items);
+  assert.equal(lines[0], "Liquidity");
+  assert.ok(lines.join(" ").includes("undrawn committed syndicated bank revolving credit facility of £850.0m"));
+  assert.ok(!lines.join(" ").includes("Food stores"));
+
+  const result = selectLiquidityEvidence(
+    "At 28 March 2026, what made up total liquidity? Break down each component.",
+    [{ id: "p26-1", index: 4, page: 26, section: "PDF page 26", text: lines.join(" ") }]
+  );
+  assert.ok(result);
+  assert.equal(result.row.page, 26);
+  assert.equal(result.components[1].amount, "£850.0m");
+  assert.match(result.sourceQuote, /^At 28 March 2026/);
+  assert.doesNotMatch(result.sourceQuote, /Lease Liabilities|Food stores|International/);
+});
+
+test("extracts the requested M&S liquidity composition from the earliest matching disclosure", () => {
+  const blocks = [
+    {
+      id: "pdf-24-10", index: 10, page: 24, section: "PDF page 24",
+      text: "At 28 March 2026, the Group had liquidity of £1,872.1m (2024/25: £1,739.5m), comprising cash and cash equivalents of £997.2m (2024/25: £864.5m), an undrawn committed syndicated bank revolving credit facility of £850.0m (set to mature in December 2030), and undrawn uncommitted facilities amounting to £25.0m."
+    },
+    {
+      id: "pdf-145-88", index: 88, page: 145, section: "PDF page 145",
+      text: "At 28 March 2026, total liquidity was £1,872.2m, comprising cash and cash equivalents of £997.2m, an undrawn committed syndicated bank revolving credit facility of £850.0m and undrawn uncommitted facilities amounting to £25.0m."
+    }
+  ];
+
+  const result = selectLiquidityEvidence(
+    "At 28 March 2026, what made up Marks and Spencer Group plc total liquidity? Break down each component and its amount.",
+    blocks
+  );
+
+  assert.ok(result);
+  assert.equal(result.row.page, 24);
+  assert.equal(result.row.id, "pdf-24-10");
+  assert.equal(result.period, "28 March 2026");
+  assert.deepEqual(result.components, [
+    { label: "Cash and cash equivalents", amount: "£997.2m" },
+    { label: "Undrawn committed syndicated bank revolving credit facility", amount: "£850.0m" },
+    { label: "Undrawn uncommitted facilities", amount: "£25.0m" }
+  ]);
+  assert.match(result.answer, /Total liquidity: £1,872.1m/);
+  assert.equal(result.sourceQuote, blocks[0].text);
+});
+
+test("liquidity extraction joins a disclosure split across PDF text blocks on the same page", () => {
+  const blocks = [
+    { id: "p24-a", index: 10, page: 24, section: "PDF page 24", text: "At 28 March 2026, the Group had liquidity of £1,872.1m (2024/25: £1,739.5m)," },
+    { id: "p24-b", index: 11, page: 24, section: "PDF page 24", text: "comprising cash and cash equivalents of £997.2m (2024/25: £864.5m)," },
+    { id: "p24-c", index: 12, page: 24, section: "PDF page 24", text: "an undrawn committed syndicated bank revolving credit facility of £850.0m (set to mature in December 2030)," },
+    { id: "p24-d", index: 13, page: 24, section: "PDF page 24", text: "and undrawn uncommitted facilities amounting to £25.0m." }
+  ];
+
+  const result = selectLiquidityEvidence(
+    "At 28 March 2026, what made up total liquidity? Break down each component.",
+    blocks
+  );
+
+  assert.ok(result);
+  assert.equal(result.row.page, 24);
+  assert.equal(result.row.id, "p24-a");
+  assert.match(result.sourceQuote, /liquidity of £1,872\.1m/);
+  assert.match(result.sourceQuote, /cash and cash equivalents of £997\.2m/);
+  assert.match(result.sourceQuote, /undrawn committed syndicated bank revolving credit facility of £850\.0m/);
+  assert.match(result.sourceQuote, /undrawn uncommitted facilities amounting to £25\.0m/);
+});
+
+test("liquidity extraction respects the requested date and fails closed on incomplete or inconsistent passages", () => {
+  const base = "At 28 March 2026, the Group had liquidity of £1,872.1m, comprising cash and cash equivalents of £997.2m, an undrawn committed syndicated bank revolving credit facility of £850.0m, and undrawn uncommitted facilities amounting to £25.0m.";
+  const block = (text, page = 24) => [{ id: "p", index: 0, page, section: "PDF", text }];
+
+  assert.equal(
+    selectLiquidityEvidence("What made up liquidity at 29 March 2025?", block(base)),
+    null
+  );
+  assert.equal(
+    selectLiquidityEvidence("Break down total liquidity at 28 March 2026", block(base.replace("£25.0m", "£250.0m"))),
+    null
+  );
+  assert.equal(
+    selectLiquidityEvidence("Break down total liquidity at 28 March 2026", block(base.replace(", and undrawn uncommitted facilities amounting to £25.0m", ""))),
+    null
+  );
+  assert.equal(
+    selectLiquidityEvidence("Why did liquidity change at 28 March 2026?", block(base)),
     null
   );
 });

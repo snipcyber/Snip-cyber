@@ -162,6 +162,51 @@ const joined = items
 return fallback.length ? [...positioned, ...fallback] : positioned;
 }
 
+// Reconstruct one PDF text column in reading order. On multi-column pages,
+// sorting every text row by vertical position interleaves unrelated columns;
+// that can split a sentence such as "an undrawn committed facility" apart.
+export function extractPageColumnLines(items, headingPattern = /\bliquidity\b/i) {
+  const rows = [];
+  for (const item of Array.isArray(items) ? items : []) {
+    const text = cleanLine(item?.str);
+    const x = Number(item?.transform?.[4]);
+    const y = Number(item?.transform?.[5]);
+    if (!text || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    let row = rows.find(candidate => Math.abs(candidate.y - y) < 1.5);
+    if (!row) {
+      row = { y, items: [] };
+      rows.push(row);
+    }
+    row.items.push({ x, y, width: Number(item?.width) || 0, text });
+  }
+
+  const fragments = [];
+  for (const row of rows) {
+    const sorted = row.items.sort((a, b) => a.x - b.x);
+    let current = [];
+    const flush = () => {
+      if (!current.length) return;
+      const text = current.map(item => item.text).join(" ").replace(/\s+/g, " ").trim();
+      if (text) fragments.push({ y: row.y, x: current[0].x, text });
+      current = [];
+    };
+    for (const item of sorted) {
+      const previous = current[current.length - 1];
+      const gap = previous ? item.x - (previous.x + Math.max(0, previous.width)) : 0;
+      if (previous && (gap >= 55 || normalized(item.text) === "liquidity")) flush();
+      current.push(item);
+    }
+    flush();
+  }
+
+  const heading = fragments.find(fragment => normalized(fragment.text) === "liquidity" && headingPattern.test(fragment.text));
+  if (!heading) return [];
+  return fragments
+    .filter(fragment => Math.abs(fragment.x - heading.x) <= 75)
+    .sort((a, b) => b.y - a.y)
+    .map(fragment => fragment.text);
+}
+
 export function classifyFinancialSection(pageText) {
 const lines = String(pageText || "")
 .split(/\n+/)
@@ -658,4 +703,134 @@ period,
 sourceQuote: row.text,
 row
 };
+}
+
+// Deterministic extraction for explicit liquidity-composition disclosures.
+// We only return a result when the total and all three named components are
+// present in the same source passage, use the same currency, and reconcile
+// within normal one-decimal rounding tolerance.
+export function selectLiquidityEvidence(question, blocks) {
+  const q = normalized(question);
+  if (
+    !/\bliquidity\b/i.test(q) ||
+    !/\b(?:what made up|compris|component|break ?down|composition|consist of|include)\b/i.test(q)
+  ) return null;
+
+  const requestedDate = String(question || "").match(
+    /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/i
+  )?.[0] || null;
+  const requestedYear = requestedDate?.match(/20\d{2}/)?.[0] ||
+    String(question || "").match(/\b20\d{2}\b/)?.[0] || null;
+
+  const money = "(£|€|\\$)\\s*([\\d,]+(?:\\.\\d+)?)\\s*m\\b";
+  const totalPattern = new RegExp("\\b(?:total\\s+)?liquidity\\s+of\\s+" + money, "i");
+  const cashPattern = new RegExp("\\bcash\\s+and\\s+cash\\s+equivalents\\s+(?:of\\s+)?" + money, "i");
+  // A decimal in a comparative amount must not stop the search before the
+  // committed facility later in the same disclosure.
+  const committedPattern = new RegExp(
+    "\\bundrawn\\s+committed\\b[\\s\\S]{0,500}?\\b(?:revolving\\s+credit\\s+)?facility\\s+(?:of|amounting to)\\s+" + money,
+    "i"
+  );
+  const uncommittedPattern = new RegExp("\\bundrawn\\s+uncommitted\\s+facilities?\\s+(?:of|amounting to)\\s+" + money, "i");
+
+  // A single printed paragraph may be split into multiple extracted PDF blocks.
+  // Reassemble only within each physical page before matching the disclosure.
+  const pages = new Map();
+  for (const block of Array.isArray(blocks) ? blocks : []) {
+    const pageKey = Number.isFinite(Number(block?.page)) ? Number(block.page) : "unknown";
+    if (!pages.has(pageKey)) pages.set(pageKey, []);
+    pages.get(pageKey).push(block);
+  }
+
+  const candidates = [];
+  for (const [page, pageBlocks] of pages) {
+    const text = pageBlocks
+      .map(block => String(block?.text || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(" ");
+    if (!text) continue;
+
+    const total = text.match(totalPattern);
+    if (!total) continue;
+    // Keep all component matches tied to this total-liquidity disclosure.
+    const window = text.slice(total.index, total.index + 1800);
+    const cash = window.match(cashPattern);
+    const committed = window.match(committedPattern);
+    const uncommitted = window.match(uncommittedPattern);
+    if (!cash || !committed || !uncommitted) continue;
+
+    const datePattern = /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}\b/gi;
+    const datesBeforeTotal = [...text.slice(0, total.index).matchAll(datePattern)];
+    const dateMatch = datesBeforeTotal[datesBeforeTotal.length - 1] || null;
+    const date = dateMatch?.[0] || null;
+    if (requestedDate && date?.toLowerCase() !== requestedDate.toLowerCase()) continue;
+    if (!requestedDate && requestedYear && !new RegExp("\\b" + requestedYear + "\\b").test(text)) continue;
+
+    const matches = [total, cash, committed, uncommitted];
+    const currency = total[1];
+    if (matches.some(match => match[1] !== currency)) continue;
+    const amounts = matches.map(match => match[2].replace(/,/g, ""));
+    const numeric = amounts.map(Number);
+    if (numeric.some(value => !Number.isFinite(value))) continue;
+    const componentSum = numeric.slice(1).reduce((sum, value) => sum + value, 0);
+    // Reported rounded components may differ from the rounded total by 0.1m.
+    if (Math.abs(componentSum - numeric[0]) > 0.2) continue;
+
+    const format = value => {
+      const [whole, fraction] = value.split(".");
+      const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      return fraction === undefined ? groupedWhole : groupedWhole + "." + fraction;
+    };
+    const formatted = amounts.map(format);
+    const components = [
+      { label: "Cash and cash equivalents", amount: currency + formatted[1] + "m" },
+      { label: "Undrawn committed syndicated bank revolving credit facility", amount: currency + formatted[2] + "m" },
+      { label: "Undrawn uncommitted facilities", amount: currency + formatted[3] + "m" }
+    ];
+    const period = date || requestedYear || null;
+    const answer = "Total liquidity: " + currency + formatted[0] + "m. " +
+      components.map(item => item.label + ": " + item.amount).join("; ") + ".";
+
+    const firstMatch = total.index;
+    const lastMatch = total.index + Math.max(
+      total[0].length,
+      cash.index + cash[0].length,
+      committed.index + committed[0].length,
+      uncommitted.index + uncommitted[0].length
+    );
+    let sourceStart = dateMatch && dateMatch.index <= firstMatch ? dateMatch.index : firstMatch;
+    // Preserve the complete sentence boundary when the disclosure begins
+    // with "At <date>" and ends with punctuation.
+    const disclosureLeadIn = dateMatch
+      ? text.slice(0, dateMatch.index).match(/\bAt\s+$/i)
+      : null;
+    if (disclosureLeadIn) {
+      sourceStart = dateMatch.index - disclosureLeadIn[0].length;
+    }
+    const trailingPunctuation = text.slice(lastMatch).match(/^\s*[.!?]/)?.[0] || "";
+    const sourceQuote = text.slice(sourceStart, lastMatch + trailingPunctuation.length).trim();
+    const anchor = pageBlocks.find(block =>
+      /\bliquidity\b/i.test(String(block?.text || "")) &&
+      /£|€|\$/.test(String(block?.text || ""))
+    ) || pageBlocks[0];
+
+    candidates.push({
+      answer,
+      period,
+      components,
+      sourceQuote,
+      row: {
+        id: anchor?.id || null,
+        index: Number.isInteger(Number(anchor?.index)) ? Number(anchor.index) : null,
+        text: sourceQuote,
+        page: Number(page),
+        section: anchor?.section || "PDF"
+      }
+    });
+  }
+
+  candidates.sort((a, b) =>
+    (a.row.page || Number.MAX_SAFE_INTEGER) - (b.row.page || Number.MAX_SAFE_INTEGER)
+  );
+  return candidates[0] || null;
 }

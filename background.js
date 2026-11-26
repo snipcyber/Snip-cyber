@@ -138,9 +138,9 @@ async function getEntitlement() {
         return { plan: 'unlimited', limit: null, period: 'unlimited', paid: true };
       }
 
-      // A paid plan that doesn't match the two expected Snip plans is not
-      // silently treated as unlimited.
-      return { plan: 'pro', limit: PRO_MONTHLY_LIMIT, period: 'month', paid: true };
+      // Never grant a fallback tier for an unknown paid plan. The usage API
+      // independently validates ExtensionPay and rejects unrecognized plans.
+      throw new Error('Unrecognized paid Snip subscription plan. Please contact support.');
     }
 
     return { plan: 'free', limit: FREE_DAILY_LIMIT, period: 'day', paid: false };
@@ -273,7 +273,7 @@ async function requestSnipEvidence(question, blocks, reservationId) {
   const { session, apiKey } = await getSnipRequestIdentity();
   const timeoutId = setTimeout(() => controller.abort(), 30000);
   try {
-    const response = await fetch('https://snip-ai-omega.vercel.app/api/find', {
+    const response = await fetch('https://snip-ai-iota.vercel.app/api/find', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -356,7 +356,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'Usage reservation required.' });
           return;
         }
-        const response = await fetch('https://snip-ai-omega.vercel.app/api/pdf-find', {
+        const response = await fetch('https://snip-ai-iota.vercel.app/api/pdf-find', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -376,7 +376,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           sendResponse({ ok: false, error: 'Usage reservation required.' });
           return;
         }
-        const response = await fetch('https://snip-ai-omega.vercel.app/api/summary', {
+        const response = await fetch('https://snip-ai-iota.vercel.app/api/summary', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -497,7 +497,7 @@ chrome.action.onClicked.addListener(async tab => {
 
 async function usageRequest(action, reservationId) {
   const { session, apiKey } = await getSnipRequestIdentity();
-  const response = await fetch("https://snip-ai-omega.vercel.app/api/usage", {
+  const response = await fetch("https://snip-ai-iota.vercel.app/api/usage", {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

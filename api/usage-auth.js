@@ -23,6 +23,8 @@ export async function verifyUsageReservation(req) {
 
   let table;
   let ownerFilter;
+  let select = 'id';
+  let reservationColumn = 'id';
 
   if (token) {
     const auth = await fetch(`${url}/auth/v1/user`, {
@@ -36,6 +38,8 @@ export async function verifyUsageReservation(req) {
     if (!user.id) return { ok: false, status: 401, error: 'Account verification failed.' };
 
     table = 'snip_usage_reservations';
+    select = 'reservation_id,plan';
+    reservationColumn = 'reservation_id';
     ownerFilter = { user_id: `eq.${user.id}` };
   } else {
     const installHash = await verifyAnonymousKey(key);
@@ -48,15 +52,26 @@ export async function verifyUsageReservation(req) {
   }
 
   const params = new URLSearchParams({
-    id: `eq.${id}`,
+    [reservationColumn]: `eq.${id}`,
     ...ownerFilter,
     status: 'eq.reserved',
     expires_at: `gt.${new Date().toISOString()}`,
-    select: 'id'
+    select
   });
 
+  // Claim the reservation atomically. A read-only GET allowed the same
+  // still-reserved ID to trigger multiple paid backend operations in parallel.
+  // PostgreSQL's conditional UPDATE means exactly one concurrent request can
+  // move this row from reserved to processing.
   const check = await fetch(`${url}/rest/v1/${table}?${params}`, {
-    headers: { apikey: service, Authorization: `Bearer ${service}` },
+    method: "PATCH",
+    headers: {
+      apikey: service,
+      Authorization: `Bearer ${service}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify({ status: "processing" }),
     signal: AbortSignal.timeout(10000)
   });
 
@@ -70,5 +85,10 @@ export async function verifyUsageReservation(req) {
     return { ok: false, status: 403, error: 'Reservation invalid or expired.' };
   }
 
-  return { ok: true, reservationId: id };
+  const plan = token ? rows[0].plan : 'free';
+  if (!['free', 'pro', 'unlimited'].includes(plan)) {
+    return { ok: false, status: 403, error: 'Reservation has an invalid plan.' };
+  }
+
+  return { ok: true, reservationId: id, plan };
 }

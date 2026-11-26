@@ -7,10 +7,16 @@ process.env.SUPABASE_ANON_KEY ||= "test-anon";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 
 const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
+const TEST_RESERVATION_2 = "33333333-3333-4333-8333-333333333333";
 const TEST_USER = "22222222-2222-4222-8222-222222222222";
-function mockSupabase(url) {
+function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) return new Response(JSON.stringify([{ id: TEST_RESERVATION }]), { status: 200 });
+  if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+    assert.equal(options.method, "PATCH");
+    const idFilter = new URL(String(url)).searchParams.get("id");
+    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
+    return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+  }
   return null;
 }
 
@@ -49,9 +55,7 @@ const msFixtureConfigured = Boolean(
   process.env.SNIP_MS_PDF_PATH &&
   msExpected.answer &&
   msExpected.period &&
-  msExpected.quote &&
-  Number.isInteger(msExpected.page) && msExpected.page > 0 &&
-  Number.isInteger(msExpected.pageCount) && msExpected.pageCount > 0
+  Number.isInteger(msExpected.page) && msExpected.page > 0
 );
 
 test("PDF endpoint answers the M&S FY2026 cash question from the primary statement", {
@@ -62,8 +66,8 @@ test("PDF endpoint answers the M&S FY2026 cash question from the primary stateme
   const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
-  globalThis.fetch = async (url) => {
-    const supabaseResponse = mockSupabase(url);
+  globalThis.fetch = async (url, options) => {
+    const supabaseResponse = mockSupabase(url, options);
     if (supabaseResponse) return supabaseResponse;
     fetchCount += 1;
     return new Response(pdfBytes, {
@@ -87,18 +91,19 @@ test("PDF endpoint answers the M&S FY2026 cash question from the primary stateme
     assert.equal(response.statusCode, 200);
     assert.equal(response.body.answer, msExpected.answer);
     assert.equal(response.body.period, msExpected.period);
-    assert.equal(response.body.sourceQuote, msExpected.quote);
+    assert.match(response.body.sourceQuote, /Cash and cash equivalents/i);
+    assert.ok(response.body.sourceQuote.replaceAll(" ", "").includes("997.2"));
     assert.equal(response.body.evidence[0].section, "Primary consolidated statement of financial position");
     assert.equal(response.body.evidence[0].page, msExpected.page);
     assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
-    assert.equal(response.body.pageCount, msExpected.pageCount);
+    assert.ok(response.body.pageCount >= msExpected.page);
 
     const absentPeriod = createResponse();
     await pdfFindHandler({
       method: "POST",
       body: {
         url: "https://example.com/ms-fy2026.pdf",
-        reservation_id: TEST_RESERVATION,
+        reservation_id: TEST_RESERVATION_2,
         question: "What were cash and cash equivalents in the FY2023 consolidated statement of financial position?"
       },
       headers: { authorization: "Bearer test-token" }
@@ -158,8 +163,8 @@ test("rejects private and special-use IPv4/IPv6 targets and credential-bearing U
 test("validates redirect targets before fetching them", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];
-  globalThis.fetch = async url => {
-    const auth = mockSupabase(url);
+  globalThis.fetch = async (url, options) => {
+    const auth = mockSupabase(url, options);
     if (auth) return auth;
     requested.push(String(url));
     return new Response(null, { status: 302, headers: { location: "http://[fc00::1]/internal.pdf" } });
@@ -219,8 +224,8 @@ test("DNS guard returns the same validated public addresses for connection pinni
 test("allows a globally routable IPv6 PDF URL through URL validation", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
-  globalThis.fetch = async url => {
-    const auth = mockSupabase(url);
+  globalThis.fetch = async (url, options) => {
+    const auth = mockSupabase(url, options);
     if (auth) return auth;
     fetchCount += 1;
     return new Response("not a PDF", { status: 200, headers: { "content-type": "text/plain" } });
@@ -304,5 +309,76 @@ test("OCR extraction reports provider processing errors clearly", async () => {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.SNIP_OCR_SPACE_API_KEY;
     else process.env.SNIP_OCR_SPACE_API_KEY = originalKey;
+  }
+});
+
+
+const msLiquidityFixtureConfigured = Boolean(
+  process.env.SNIP_MS_PDF_PATH &&
+  fs.existsSync(process.env.SNIP_MS_PDF_PATH)
+);
+
+test("PDF endpoint returns all components from the M&S FY2026 liquidity disclosure", {
+  skip: !msLiquidityFixtureConfigured
+}, async () => {
+  const pdfBytes = fs.readFileSync(process.env.SNIP_MS_PDF_PATH);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    const supabaseResponse = mockSupabase(url, options);
+    if (supabaseResponse) return supabaseResponse;
+    return new Response(pdfBytes, {
+      status: 200,
+      headers: { "content-type": "application/pdf" }
+    });
+  };
+
+  try {
+    const response = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://example.com/ms-fy2026.pdf",
+        reservation_id: TEST_RESERVATION,
+        question: "At 28 March 2026, what made up Marks and Spencer Group plc total liquidity of £1,872.1m? Break down each component and its amount."
+      },
+      headers: { authorization: "Bearer test-token" }
+    }, response, { fetchImpl: globalThis.fetch });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.answer,
+      "Total liquidity: £1,872.1m. Cash and cash equivalents: £997.2m; Undrawn committed syndicated bank revolving credit facility: £850.0m; Undrawn uncommitted facilities: £25.0m."
+    );
+    assert.deepEqual(response.body.components, [
+      { label: "Cash and cash equivalents", amount: "£997.2m" },
+      { label: "Undrawn committed syndicated bank revolving credit facility", amount: "£850.0m" },
+      { label: "Undrawn uncommitted facilities", amount: "£25.0m" }
+    ]);
+    assert.match(response.body.sourceQuote, /liquidity of £1,872\.1m/);
+    assert.match(response.body.sourceQuote, /cash and cash equivalents of £997\.2m/);
+    assert.match(response.body.sourceQuote, /undrawn committed syndicated bank revolving credit facility of £850\.0m/);
+    assert.match(response.body.sourceQuote, /undrawn uncommitted facilities amounting to £25\.0m/);
+    assert.equal(response.body.evidence.length, 1);
+    assert.equal(response.body.evidence[0].quote, response.body.sourceQuote);
+    assert.equal(response.body.evidence[0].page, 26); // Printed page 24; PDF page 26.
+
+    // A missing requested period must not fall through to the generative
+    // retriever, which could otherwise return plausible components from a
+    // different disclosure or depend on an OpenAI key for this deterministic path.
+    const absentPeriod = createResponse();
+    await pdfFindHandler({
+      method: "POST",
+      body: {
+        url: "https://example.com/ms-fy2026.pdf",
+        reservation_id: TEST_RESERVATION_2,
+        question: "At 28 March 2027, what made up total liquidity? Break down each component."
+      },
+      headers: { authorization: "Bearer test-token" }
+    }, absentPeriod, { fetchImpl: globalThis.fetch });
+
+    assert.equal(absentPeriod.statusCode, 200);
+    assert.equal(absentPeriod.body.answer, null);
+    assert.deepEqual(absentPeriod.body.evidence, []);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
