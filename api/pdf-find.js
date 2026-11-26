@@ -165,7 +165,7 @@ export function toBlocks(text, page) {
   const parts = clean
     .split(/\n\s*\n/)
     .flatMap(paragraph => splitIntoPassages(paragraph))
-    .map(s => s.trim()).filter(s => s.length >= 15);
+    .map(s => s.trim()).filter(s => [...s].length >= 8);
   return parts.map(text => ({ text, page }));
 }
 
