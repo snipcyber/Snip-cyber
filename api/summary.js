@@ -1,6 +1,6 @@
 import { verifyUsageReservation } from "./usage-auth.js";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
-import { Agent } from "undici";
+import { Agent, fetch as undiciFetch } from "undici";
 import {
   unsafeUrl,
   publicDnsLookup,
@@ -29,6 +29,7 @@ export default async function handler(req, res) {
   const controller = new AbortController();
   const dispatcher = new Agent({ connect: { lookup: publicDnsLookup } });
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  let stage = "reservation-verification";
 
   try {
     const reservation = await verifyUsageReservation(req);
@@ -43,7 +44,8 @@ export default async function handler(req, res) {
         throw error;
       }
 
-      response = await fetch(requestUrl, {
+      stage = "pdf-download";
+      response = await undiciFetch(requestUrl, {
         redirect: "manual",
         dispatcher,
         signal: controller.signal,
@@ -66,6 +68,7 @@ export default async function handler(req, res) {
       throw error;
     }
 
+    stage = "pdf-read";
     const bytes = await readLimited(response, controller, getPdfMaxBytes(reservation.plan));
     const contentType = String(response.headers.get("content-type") || "").toLowerCase();
     if (!contentType.includes("pdf") && !bytes.subarray(0, 5).toString().startsWith("%PDF-")) {
@@ -73,6 +76,7 @@ export default async function handler(req, res) {
     }
 
     let renderedPage = 0;
+    stage = "pdf-parse";
     const parsed = await pdfParse(bytes, {
       pagerender: async pageData => {
         renderedPage++;
@@ -129,6 +133,7 @@ export default async function handler(req, res) {
       });
     }
 
+    stage = "openai-request";
     const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -167,13 +172,14 @@ export default async function handler(req, res) {
       throw error;
     }
 
+    stage = "openai-response";
     const payload = await aiResponse.json();
     const brief = String(payload.choices?.[0]?.message?.content || "").trim();
     if (!brief) throw new Error("The summary service returned an empty brief.");
 
     return res.status(200).json({ brief, pageCount, pagesUsed: pages.length });
   } catch (error) {
-    console.error("Snip Executive Brief error:", error?.message || error);
+    console.error("Snip Executive Brief error:", { stage, message: error?.message || String(error), cause: error?.cause?.message, code: error?.cause?.code, name: error?.name });
     const status = controller.signal.aborted ? 504 : (error.statusCode || 500);
     return res.status(status).json({
       error: controller.signal.aborted
