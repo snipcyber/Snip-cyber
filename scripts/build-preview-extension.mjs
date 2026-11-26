@@ -32,6 +32,7 @@ if (apiOrigin === "https://snip-ai-iota.vercel.app" ||
 const excluded = [
   /^api\//, /^test\//, /^supabase\//, /^\.github\//, /^scripts\//,
   /^node_modules\//, /^dist-preview\//, /^package(?:-lock)?\.json$/,
+  /(^|\\/)\\.env(?:$|\\.)/i, /\\.zip$/i,
   /^README(?:\..*)?$/i, /^\.gitignore$/
 ];
 const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
