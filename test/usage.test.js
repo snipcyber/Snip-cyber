@@ -192,3 +192,44 @@ test("anonymous usage requires an installation identity and rejects unknown acti
   });
   assert.equal(unknownAction.statusCode, 400);
 });
+
+test("ExtensionPay subscription lifecycle follows its documented paid flag", async () => {
+  const cases = [
+    { label: "active subscription", paid: true, subscriptionStatus: "active", expectedPlan: "pro", expectedStatus: 200 },
+    { label: "failed payment", paid: false, subscriptionStatus: "past_due", expectedPlan: "free", expectedStatus: 200 },
+    { label: "expired cancellation", paid: false, subscriptionStatus: "canceled", expectedPlan: "free", expectedStatus: 200 },
+    // A cancellation scheduled for the end of the current paid period remains active until then.
+    { label: "cancel at period end", paid: true, subscriptionStatus: "active", subscriptionCancelAt: "2030-01-01T00:00:00.000Z", expectedPlan: "pro", expectedStatus: 200 }
+  ];
+
+  for (const scenario of cases) {
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+      const address = String(url);
+      calls.push({ url: address, options });
+      if (address.endsWith("/auth/v1/user")) return jsonResponse({ id: "user-lifecycle" });
+      if (address.includes("extensionpay.com")) {
+        return jsonResponse({
+          paid: scenario.paid,
+          subscriptionStatus: scenario.subscriptionStatus,
+          subscriptionCancelAt: scenario.subscriptionCancelAt || null,
+          plan: scenario.paid
+            ? { nickname: "Pro", unitAmountCents: 500, currency: "usd", interval: "month", intervalCount: 1 }
+            : null
+        });
+      }
+      return jsonResponse({ ok: true, reservation_id: "reservation-lifecycle" });
+    };
+
+    const res = await invoke({ action: "reserve" }, {
+      authorization: "Bearer valid-session",
+      "x-snip-extensionpay-key": "extensionpay-key"
+    });
+
+    assert.equal(res.statusCode, scenario.expectedStatus, scenario.label);
+    assert.equal(res.body.plan, scenario.expectedPlan, scenario.label);
+    assert.equal(calls.length, 3, scenario.label);
+    assert.match(calls[2].url, /rpc\\/snip_reserve_usage$/, scenario.label);
+    assert.equal(JSON.parse(calls[2].options.body).p_plan, scenario.expectedPlan, scenario.label);
+  }
+});
