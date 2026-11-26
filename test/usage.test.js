@@ -6,7 +6,7 @@ process.env.SUPABASE_URL ||= "https://test.supabase.co";
 process.env.SUPABASE_ANON_KEY ||= "test-anon";
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 
-const { default: usageHandler } = await import("../api/usage.js");
+const { default: usageHandler, serviceKeyHeaders } = await import("../api/usage.js");
 const originalFetch = global.fetch;
 
 afterEach(() => {
@@ -30,6 +30,21 @@ async function invoke(body, headers = {}) {
   await usageHandler({ method: "POST", body, headers }, res);
   return res;
 }
+
+test("modern Supabase secret keys are sent only in the apikey header", () => {
+  assert.deepEqual(serviceKeyHeaders("sb_secret_test-key"), {
+    apikey: "sb_secret_test-key",
+    "Content-Type": "application/json"
+  });
+});
+
+test("legacy Supabase service_role JWTs retain the Authorization header", () => {
+  assert.deepEqual(serviceKeyHeaders("legacy-service-role-jwt"), {
+    apikey: "legacy-service-role-jwt",
+    "Content-Type": "application/json",
+    Authorization: "Bearer legacy-service-role-jwt"
+  });
+});
 
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), {
