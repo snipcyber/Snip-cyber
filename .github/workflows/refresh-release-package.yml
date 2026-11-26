@@ -5,6 +5,18 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/refresh-release-package.yml"
+      - "ExtPay.js"
+      - "snip-config.js"
+      - "background.js"
+      - "content.css"
+      - "content.js"
+      - "build/**"
+      - "icons/**"
+      - "manifest.json"
+      - "pdf.css"
+      - "pdf.html"
+      - "pdf.js"
+      - "web/**"
 
 permissions:
   contents: write
