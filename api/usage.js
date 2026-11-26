@@ -1,17 +1,24 @@
 import { createHash } from "node:crypto";
 
-const URL = (process.env.SUPABASE_URL || "").trim();
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").trim();
 const ANON = (process.env.SUPABASE_ANON_KEY || "").trim();
 const SERVICE = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 
+export function serviceKeyHeaders(key) {
+  const headers = { apikey: key, "Content-Type": "application/json" };
+  // Supabase's opaque secret keys are API keys, not JWTs. Sending one as a
+  // Bearer token makes the gateway try to parse it as a JWT and reject it.
+  // Legacy service_role keys are JWTs and retain the Authorization header.
+  if (!String(key).startsWith("sb_secret_")) {
+    headers.Authorization = "Bearer " + key;
+  }
+  return headers;
+}
+
 async function rpc(name, body) {
-  const response = await fetch(`${URL}/rest/v1/rpc/${name}`, {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
     method: "POST",
-    headers: {
-      apikey: SERVICE,
-      Authorization: `Bearer ${SERVICE}`,
-      "Content-Type": "application/json"
-    },
+    headers: serviceKeyHeaders(SERVICE),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(12000)
   });
@@ -21,7 +28,7 @@ async function rpc(name, body) {
 }
 
 async function verifyUser(token) {
-  const response = await fetch(`${URL}/auth/v1/user`, {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
     headers: { apikey: ANON, Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(10000)
   });
@@ -62,7 +69,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
-    if (!URL || !ANON || !SERVICE) throw new Error("Missing Supabase configuration.");
+    if (!SUPABASE_URL || !ANON || !SERVICE) throw new Error("Missing Supabase configuration.");
 
     const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
     const key = String(req.headers["x-snip-extensionpay-key"] || "");
@@ -115,7 +122,7 @@ export default async function handler(req, res) {
       message: error.message,
       cause: error.cause?.message,
       code: error.cause?.code,
-      hostname: (() => { try { return new URL(URL).hostname; } catch { return "invalid-url"; } })()
+      hostname: (() => { try { return new URL(SUPABASE_URL).hostname; } catch { return "invalid-url"; } })()
     });
     return res.status(503).json({ error: "Usage service unavailable." });
   }
