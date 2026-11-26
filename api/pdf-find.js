@@ -4,6 +4,7 @@ import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns";
 import { Agent, fetch as undiciFetch } from "undici";
 import findHandler from "./find.js";
+import { splitIntoPassages } from "./passage-segmentation.js";
 import {
   extractFinancialRows,
   extractFinancialRowsFromItems,
@@ -158,10 +159,12 @@ function withAbort(promise, signal) {
   });
 }
 
-function toBlocks(text, page) {
+export function toBlocks(text, page) {
   const clean = String(text || "").replace(/\u00ad/g, "").replace(/[ \t]+/g, " ").trim();
   if (!clean) return [];
-  const parts = clean.split(/\n\s*\n|(?<=[.!?])\s+(?=[A-Z0-9])/g)
+  const parts = clean
+    .split(/\n\s*\n/)
+    .flatMap(paragraph => splitIntoPassages(paragraph))
     .map(s => s.trim()).filter(s => s.length >= 15);
   const result = [];
   let buffer = "";
