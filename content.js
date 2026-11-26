@@ -1109,6 +1109,21 @@
         return result.data || {};
       }
 
+      async function renewReservation() {
+        // The backend atomically changes reserved -> processing on the first
+        // request. A retry must use a new reservation; reusing the old ID is
+        // correctly rejected as a replay by the backend.
+        if (reservationId) {
+          const released = await sendRuntimeMessage({ type: "SNIP_USAGE_RELEASE", reservationId });
+          if (!released?.ok) throw new Error(released?.error || "Could not release the previous search reservation.");
+        }
+        const next = await sendRuntimeMessage({ type: "SNIP_USAGE_RESERVE" });
+        if (!next?.ok || !next.reservation_id) {
+          throw new Error(next?.error || "Could not reserve a retry search.");
+        }
+        reservationId = next.reservation_id;
+      }
+
       let data;
       const compact = payloadBlocks.slice(0, 40);
 
@@ -1116,8 +1131,9 @@
         data = await requestEvidence(payloadBlocks);
       } catch (firstError) {
         // Large/complex pages can still overwhelm a serverless/model request.
-        // Retry once with a compact, high-signal subset before surfacing an error.
+        // Retry once with a compact, high-signal subset and a fresh reservation.
         if (compact.length >= payloadBlocks.length) throw firstError;
+        await renewReservation();
         data = await requestEvidence(compact);
       }
 
@@ -1126,12 +1142,11 @@
         : [];
 
       // A model request can succeed at the HTTP level but occasionally return
-      // no evidence. Do not make the user press Find again: retry automatically
-      // with the compact context, then make one final identical-context attempt.
-      // This fixes intermittent first-attempt misses without changing retrieval
-      // or highlight precision.
+      // no evidence. Retry with fresh one-time reservations rather than
+      // replaying an ID already atomically claimed by the backend.
       if (evidenceList.length === 0) {
         try {
+          await renewReservation();
           const retryData = await requestEvidence(compact);
           evidenceList = Array.isArray(retryData?.evidence)
             ? retryData.evidence
@@ -1143,6 +1158,7 @@
 
       if (evidenceList.length === 0) {
         try {
+          await renewReservation();
           const finalData = await requestEvidence(compact);
           evidenceList = Array.isArray(finalData?.evidence)
             ? finalData.evidence
