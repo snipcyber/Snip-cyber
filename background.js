@@ -9,8 +9,8 @@ const PRO_MONTHLY_LIMIT = 500;
 const PRO_PLAN = 'Pro';
 const UNLIMITED_PLAN = 'Unlimited';
 
-const SUPABASE_URL = 'https://xukvqizvofbafzxplnoh.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_EXgBb4_2j6iKcKITBOjfpg_T7hhIcNk';
+const SUPABASE_URL = 'https://zgmctojqfzwvqilwjujp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_xwniBXIyDOOdzTMie7JVWQ_s9wzjnoE';
 
 async function supabaseAuth(path, options = {}) {
   const controller = new AbortController();
