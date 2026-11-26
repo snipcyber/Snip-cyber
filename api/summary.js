@@ -11,7 +11,7 @@ import {
 
 const TIMEOUT_MS = 25000;
 
-export default async function handler(req, res) {
+export default async function handler(req, res, { fetchImpl = undiciFetch, openAiFetch = fetch } = {}) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Snip-ExtensionPay-Key");
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
       }
 
       stage = "pdf-download";
-      response = await undiciFetch(requestUrl, {
+      response = await fetchImpl(requestUrl, {
         redirect: "manual",
         dispatcher,
         signal: controller.signal,
@@ -134,7 +134,7 @@ export default async function handler(req, res) {
     }
 
     stage = "openai-request";
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    const aiResponse = await openAiFetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
