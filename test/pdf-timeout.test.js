@@ -7,7 +7,7 @@ const TEST_RESERVATION = "11111111-1111-4111-8111-111111111111";
 const TEST_USER = "22222222-2222-4222-8222-222222222222";
 function mockSupabase(url) {
   if (String(url).endsWith("/auth/v1/user")) return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
+  if (String(url).includes("/rest/v1/snip_usage_reservations?")) { const params = new URL(String(url)).searchParams; return new Response(JSON.stringify([{ reservation_id: params.get("reservation_id")?.slice(3), plan: "free" }]), { status: 200 }); }
   return null;
 }
 
@@ -51,9 +51,23 @@ test("PDF download timeout returns 504", async () => {
     const response = createResponse();
     await pdfFindHandler({
       method: "POST",
-      body: { url: "https://reports.example.test/slow.pdf", question: "Find the answer", reservation_id: TEST_RESERVATION },
+      body: {
+        url: "https://reports.example.test/slow.pdf",
+        question: "Find the answer",
+        reservation_id: TEST_RESERVATION
+      },
       headers: { authorization: "Bearer test-token" }
-    }, response);
+    }, response, {
+      fetchImpl: async (url, options = {}) => {
+        const supabaseResponse = mockSupabase(url, options);
+        if (supabaseResponse) return supabaseResponse;
+        return new Promise((_, reject) => {
+          options.signal.addEventListener("abort", () => {
+            reject(new Error("fetch aborted"));
+          }, { once: true });
+        });
+      }
+    });
 
     assert.equal(response.statusCode, 504);
     assert.match(response.body.error, /took too long/i);

@@ -71,7 +71,10 @@ test("PDF endpoint remains isolated under 100 concurrent authorized requests", a
             question: "What is the key disclosure?"
           }
         }, response, {
-          fetchImpl: async () => {
+          fetchImpl: async (url, options) => {
+            if (String(url).includes("/auth/v1/user") || String(url).includes("/rest/v1/")) {
+              return globalThis.fetch(url, options);
+            }
             pdfFetches += 1;
             return new Response("not a PDF", {
               status: 200,
@@ -191,7 +194,10 @@ test("anonymous PDF reservations also reject concurrent replay", async () => {
             question: "What is the key disclosure?"
           }
         }, response, {
-          fetchImpl: async () => {
+          fetchImpl: async (url, options) => {
+            if (String(url).includes("/auth/v1/user") || String(url).includes("/rest/v1/")) {
+              return globalThis.fetch(url, options);
+            }
             pdfFetches += 1;
             return new Response("not a PDF", {
               status: 200,
@@ -249,13 +255,16 @@ test("PDF endpoint survives stepped concurrency bursts with distinct reservation
               question: "What is the key disclosure?"
             }
           }, response, {
-            fetchImpl: async () => {
-              pdfFetches += 1;
-              return new Response("not a PDF", {
-                status: 200,
-                headers: { "content-type": "text/plain" }
-              });
+            fetchImpl: async (url, options) => {
+            if (String(url).includes("/auth/v1/user") || String(url).includes("/rest/v1/")) {
+              return globalThis.fetch(url, options);
             }
+            pdfFetches += 1;
+            return new Response("not a PDF", {
+              status: 200,
+              headers: { "content-type": "text/plain" }
+            });
+          }
           });
           return response;
         })

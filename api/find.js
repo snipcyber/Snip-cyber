@@ -4,55 +4,79 @@ import { splitIntoPassages } from "./passage-segmentation.js";
 async function getSemanticScores(question, items) {
   if (!OPENAI_API_KEY || !items.length) return [];
 
-  const selected = items.slice(0, 300);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
+  const BATCH_SIZE = 700;
+  const CONCURRENCY = 3;
+  const scores = new Array(items.length).fill(0);
+  const starts = [];
 
-  try {
-    const response = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "text-embedding-3-small",
-        input: [
-          question,
-          ...selected.map(item => item.sentence.slice(0, 1200))
-        ]
-      }),
-      signal: controller.signal
-    });
-
-    if (!response.ok) throw new Error(`Embedding API returned ${response.status}`);
-
-    const payload = await response.json();
-    const vectors = (payload.data || [])
-      .sort((a, b) => a.index - b.index)
-      .map(item => item.embedding);
-
-    if (vectors.length !== selected.length + 1) {
-      throw new Error("Incomplete embedding response");
-    }
-
-    const query = vectors[0];
-    const queryNorm = Math.sqrt(query.reduce((sum, v) => sum + v * v, 0));
-
-    return selected.map((item, index) => {
-      const vector = vectors[index + 1];
-      const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
-      const dot = vector.reduce((sum, v, i) => sum + v * query[i], 0);
-      return queryNorm && norm ? dot / (queryNorm * norm) : 0;
-    });
-  } finally {
-    clearTimeout(timeout);
+  for (let start = 0; start < items.length; start += BATCH_SIZE) {
+    starts.push(start);
   }
+
+  async function embedBatch(start) {
+    const selected = items.slice(start, start + BATCH_SIZE);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/embeddings", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "text-embedding-3-small",
+          input: [question, ...selected.map(item => item.sentence.slice(0, 1200))]
+        }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) throw new Error(`Embedding API returned ${response.status}`);
+
+      const payload = await response.json();
+      const vectors = (payload.data || [])
+        .sort((a, b) => a.index - b.index)
+        .map(item => item.embedding);
+
+      if (vectors.length !== selected.length + 1) {
+        throw new Error("Incomplete embedding response");
+      }
+
+      const query = vectors[0];
+      const queryNorm = Math.sqrt(query.reduce((sum, v) => sum + v * v, 0));
+
+      selected.forEach((item, index) => {
+        const vector = vectors[index + 1];
+        const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
+        const dot = vector.reduce((sum, v, i) => sum + v * query[i], 0);
+        scores[start + index] = queryNorm && norm ? dot / (queryNorm * norm) : 0;
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  for (let i = 0; i < starts.length; i += CONCURRENCY) {
+    const group = starts.slice(i, i + CONCURRENCY);
+    const results = await Promise.allSettled(group.map(embedBatch));
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(
+          `Semantic batch at sentence ${group[index]} failed:`,
+          result.reason?.message || result.reason
+        );
+      }
+    });
+  }
+
+  return scores;
 }
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ALLOWED_ORIGIN = "*";
-const DEFAULT_OPENAI_TIMEOUT_MS = 60000;
+const DEFAULT_OPENAI_TIMEOUT_MS = 90000;
 const configuredOpenAiTimeout = Number(process.env.SNIP_OPENAI_TIMEOUT_MS);
 const OPENAI_TIMEOUT_MS = Number.isFinite(configuredOpenAiTimeout) && configuredOpenAiTimeout >= 10
   ? Math.min(configuredOpenAiTimeout, DEFAULT_OPENAI_TIMEOUT_MS)
