@@ -4,9 +4,8 @@ import test, { afterEach } from "node:test";
 
 process.env.SUPABASE_URL ||= "https://test.supabase.co";
 process.env.SUPABASE_ANON_KEY ||= "test-anon";
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 
-const { default: usageHandler, serviceKeyHeaders } = await import("../api/usage.js");
+const { default: usageHandler } = await import("../api/usage.js");
 const originalFetch = global.fetch;
 
 afterEach(() => {
@@ -30,21 +29,6 @@ async function invoke(body, headers = {}) {
   await usageHandler({ method: "POST", body, headers }, res);
   return res;
 }
-
-test("modern Supabase secret keys are sent only in the apikey header", () => {
-  assert.deepEqual(serviceKeyHeaders("sb_secret_test-key"), {
-    apikey: "sb_secret_test-key",
-    "Content-Type": "application/json"
-  });
-});
-
-test("legacy Supabase service_role JWTs retain the Authorization header", () => {
-  assert.deepEqual(serviceKeyHeaders("legacy-service-role-jwt"), {
-    apikey: "legacy-service-role-jwt",
-    "Content-Type": "application/json",
-    Authorization: "Bearer legacy-service-role-jwt"
-  });
-});
 
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), {
@@ -73,7 +57,8 @@ test("anonymous usage status hashes the installation key before calling Supabase
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     p_install_hash: createHash("sha256").update(key).digest("hex")
   });
-  assert.equal(calls[0].options.headers.Authorization, "Bearer test-service");
+  assert.equal(calls[0].options.headers.apikey, "test-anon");
+  assert.equal("Authorization" in calls[0].options.headers, false);
 });
 
 test("authenticated Pro reservation verifies the session and ExtensionPay plan", async () => {
@@ -100,10 +85,9 @@ test("authenticated Pro reservation verifies the session and ExtensionPay plan",
   assert.match(calls[0].url, /\/auth\/v1\/user$/);
   assert.match(calls[1].url, /extensionpay\.com\/extension\/snip\/api\/v2\/user/);
   assert.match(calls[2].url, /rpc\/snip_reserve_usage$/);
-  assert.deepEqual(JSON.parse(calls[2].options.body), {
-    p_user_id: "user-123",
-    p_plan: "pro"
-  });
+  assert.deepEqual(JSON.parse(calls[2].options.body), { p_plan: "pro" });
+  assert.equal(calls[2].options.headers.apikey, "test-anon");
+  assert.equal(calls[2].options.headers.Authorization, "Bearer valid-session");
 });
 
 test("authenticated Unlimited reservation maps the $15 plan to unlimited", async () => {
@@ -146,7 +130,6 @@ test("authenticated commit does not re-check the subscription and scopes the RPC
   assert.equal(calls.length, 2);
   assert.match(calls[1].url, /rpc\/snip_commit_usage$/);
   assert.deepEqual(JSON.parse(calls[1].options.body), {
-    p_user_id: "user-789",
     p_reservation_id: "11111111-1111-4111-8111-111111111111"
   });
 });
