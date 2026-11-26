@@ -37,3 +37,15 @@ jobs:
           SNIP_MS_EXPECTED_PERIOD: "28 March 2026"
           SNIP_MS_EXPECTED_PAGE: "116"
         run: npm test
+      - name: Validate isolated Preview extension build
+        run: |
+          node --check scripts/build-preview-extension.mjs
+          node scripts/build-preview-extension.mjs
+          test -f dist-preview/manifest.json
+          test -f dist-preview/background.js
+          test -f dist-preview/pdf.js
+          test -f dist-preview/snip-config.js
+          ! grep -q "snip-ai-iota.vercel.app" dist-preview/background.js
+          ! grep -q "snip-ai-iota.vercel.app" dist-preview/pdf.js
+          grep -q "snip-ai-git-feature-multilingual-passage-segm-0af0f2-snipdeploy.vercel.app" dist-preview/snip-config.js
+          grep -q "xukvqizvofbafzxplnoh.supabase.co" dist-preview/snip-config.js
