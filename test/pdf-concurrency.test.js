@@ -4,7 +4,6 @@ import test from "node:test";
 
 process.env.SUPABASE_URL ||= "https:" + "/" + "/test.supabase.co";
 process.env.SUPABASE_ANON_KEY ||= "test-anon";
-process.env.SUPABASE_SERVICE_ROLE_KEY ||= "test-service";
 
 const { default: pdfFindHandler } = await import("../api/pdf-find.js");
 
@@ -27,11 +26,10 @@ function mockSupabase(url, options = {}) {
   if (String(url).endsWith("/auth/v1/user")) {
     return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
   }
-  if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
-    assert.equal(options.method, "PATCH");
-    const idFilter = new URL(String(url)).searchParams.get("id");
-    const id = idFilter?.startsWith("eq.") ? idFilter.slice(3) : null;
-    return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+  if (String(url).includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
+    assert.equal(options.method, "POST");
+    const payload = JSON.parse(options.body || "{}");
+    return new Response(JSON.stringify({ ok: true, reservation_id: payload.p_reservation_id, plan: "free" }), { status: 200 });
   }
   throw new Error("Unexpected Supabase request: " + url);
 }
@@ -47,12 +45,13 @@ test("PDF endpoint remains isolated under 100 concurrent authorized requests", a
       authChecks += 1;
       return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
     }
-    if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+    if (String(url).includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
       reservationChecks += 1;
-      assert.equal(options.method, "PATCH");
-      if (claimed) return new Response("[]", { status: 200 });
+      assert.equal(options.method, "POST");
+      const payload = JSON.parse(options.body || "{}");
+      if (claimed) return new Response(JSON.stringify({ ok: false }), { status: 200 });
       claimed = true;
-      return new Response(JSON.stringify([{ id: TEST_RESERVATION, plan: "free" }]), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, reservation_id: payload.p_reservation_id, plan: "free" }), { status: 200 });
     }
     throw new Error("Unexpected Supabase request: " + url);
   };
@@ -112,9 +111,9 @@ test("PDF endpoint rejects concurrent requests with missing reservations before 
       authChecks += 1;
       return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
     }
-    if (String(url).includes("/rest/v1/snip_usage_reservations?")) {
+    if (String(url).includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
       reservationChecks += 1;
-      return new Response("[]", { status: 200 });
+      return new Response(JSON.stringify({ ok: false }), { status: 200 });
     }
     throw new Error("Unexpected network request: " + url);
   };
@@ -168,14 +167,14 @@ test("anonymous PDF reservations also reject concurrent replay", async () => {
       authChecks += 1;
       throw new Error("Anonymous requests must not call Supabase Auth");
     }
-    if (url.includes("/rest/v1/snip_anonymous_usage_reservations?")) {
+    if (url.includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
       reservationChecks += 1;
-      assert.equal(options.method, "PATCH");
-      const parsed = new URL(url);
-      assert.equal(parsed.searchParams.get("install_hash"), "eq." + installHash);
-      if (claimed) return new Response("[]", { status: 200 });
+      assert.equal(options.method, "POST");
+      const payload = JSON.parse(options.body || "{}");
+      assert.equal(payload.p_install_hash, installHash);
+      if (claimed) return new Response(JSON.stringify({ ok: false }), { status: 200 });
       claimed = true;
-      return new Response(JSON.stringify([{ id: TEST_RESERVATION }]), { status: 200 });
+      return new Response(JSON.stringify({ ok: true, reservation_id: payload.p_reservation_id, plan: "free" }), { status: 200 });
     }
     throw new Error("Unexpected network request: " + url);
   };
@@ -230,11 +229,10 @@ test("PDF endpoint survives stepped concurrency bursts with distinct reservation
       authByBurst.push(url);
       return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
     }
-    if (url.includes("/rest/v1/snip_usage_reservations?")) {
+    if (url.includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
       reservationByBurst.push(url);
-      const parsed = new URL(url);
-      const id = parsed.searchParams.get("id")?.replace(/^eq\./, "");
-      return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+      const payload = JSON.parse(options.body || "{}");
+      return new Response(JSON.stringify({ ok: true, reservation_id: payload.p_reservation_id, plan: "free" }), { status: 200 });
     }
     throw new Error("Unexpected Supabase request: " + url);
   };
