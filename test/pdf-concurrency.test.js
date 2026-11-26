@@ -229,11 +229,10 @@ test("PDF endpoint survives stepped concurrency bursts with distinct reservation
       authByBurst.push(url);
       return new Response(JSON.stringify({ id: TEST_USER }), { status: 200 });
     }
-    if (url.includes("/rest/v1/snip_usage_reservations?")) {
+    if (url.includes("/rest/v1/rpc/snip_api_claim_usage_reservation")) {
       reservationByBurst.push(url);
-      const parsed = new URL(url);
-      const id = parsed.searchParams.get("id")?.replace(/^eq\./, "");
-      return new Response(JSON.stringify([{ id, plan: "free" }]), { status: 200 });
+      const payload = JSON.parse(options.body || "{}");
+      return new Response(JSON.stringify({ ok: true, reservation_id: payload.p_reservation_id, plan: "free" }), { status: 200 });
     }
     throw new Error("Unexpected Supabase request: " + url);
   };
