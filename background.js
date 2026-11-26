@@ -132,12 +132,15 @@ async function getEntitlement() {
     if (user?.paid) {
       const nickname = String(user.plan?.nickname || '').trim().toLowerCase();
       const amount = Number(user.plan?.unitAmountCents || 0);
+      const isMonthly = user.plan?.interval === 'month' && Number(user.plan?.intervalCount) === 1;
 
-      // Prefer the plan nickname configured in ExtensionPay.
-      if (nickname === PRO_PLAN.toLowerCase() || amount === 500) {
+      // Paid access is limited to the configured USD monthly subscriptions.
+      if (isMonthly && String(user.plan?.currency || '').toLowerCase() === 'usd'
+          && amount === 500 && (!nickname || nickname === PRO_PLAN.toLowerCase())) {
         return { plan: 'pro', limit: PRO_MONTHLY_LIMIT, period: 'month', paid: true };
       }
-      if (nickname === UNLIMITED_PLAN.toLowerCase() || amount === 1500) {
+      if (isMonthly && String(user.plan?.currency || '').toLowerCase() === 'usd'
+          && amount === 1500 && (!nickname || nickname === UNLIMITED_PLAN.toLowerCase())) {
         return { plan: 'unlimited', limit: null, period: 'unlimited', paid: true };
       }
 
@@ -240,7 +243,14 @@ async function openPayment(plan) {
   const targetAmount = plan === 'unlimited' ? 1500 : 500;
   const plans = await extpay.getPlans();
   const list = Array.isArray(plans) ? plans : (Array.isArray(plans?.plans) ? plans.plans : []);
-  const matching = list.find(p => Number(p?.unitAmountCents) === targetAmount && String(p?.currency || '').toLowerCase() === 'usd');
+  const matching = list.find(p =>
+    Number(p?.unitAmountCents) === targetAmount
+    && String(p?.currency || '').toLowerCase() === 'usd'
+    && p?.interval === 'month'
+    && Number(p?.intervalCount) === 1
+    && (!p?.nickname || String(p.nickname).trim().toLowerCase() === (plan === 'unlimited' ? UNLIMITED_PLAN : PRO_PLAN).toLowerCase())
+  );
+  if (!matching) throw new Error('The selected monthly Snip plan is not configured in ExtensionPay.');
 
   // ExtensionPay can deep-link only when the plan has a real nickname.
   // Never invent one: if the account has no nickname, open the normal plan chooser.
