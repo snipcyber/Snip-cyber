@@ -1,0 +1,80 @@
+name: Refresh v2.4.1 Chrome package
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/refresh-release-package.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-existing-package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out merged main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Refresh the existing ZIP in place
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f Snip_2.4.1_FINAL.zip
+          zip -r -FS Snip_2.4.1_FINAL.zip ExtPay.js snip-config.js background.js content.css content.js build icons manifest.json pdf.css pdf.html pdf.js web
+
+      - name: Validate package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          unzip -tq Snip_2.4.1_FINAL.zip
+          python3 - <<'PY'
+          import hashlib, json, zipfile
+          from pathlib import Path
+
+          with zipfile.ZipFile("Snip_2.4.1_FINAL.zip") as archive:
+              assert archive.testzip() is None
+              names = {name for name in archive.namelist() if not name.endswith("/")}
+              required = {
+                  "ExtPay.js", "snip-config.js", "background.js", "content.css",
+                  "content.js", "manifest.json", "pdf.css", "pdf.html", "pdf.js",
+                  "build/pdf.js", "build/pdf.sandbox.js", "build/pdf.worker.js",
+                  "icons/icon16.png", "icons/icon32.png", "icons/icon48.png",
+                  "icons/icon128.png",
+              }
+              assert required <= names, f"Missing files: {sorted(required - names)}"
+              manifest = json.loads(archive.read("manifest.json"))
+              assert manifest["manifest_version"] == 3
+              assert manifest["version"] == "2.4.1"
+              background = archive.read("background.js").decode()
+              assert "importScripts('snip-config.js', 'ExtPay.js')" in background
+              config = archive.read("snip-config.js").decode()
+              assert "https://snip-ai-iota.vercel.app" in config
+              assert "https://zgmctojqfzwvqilwjujp.supabase.co" in config
+              for name in names:
+                  source = Path(name)
+                  assert source.is_file(), f"Unexpected archive member: {name}"
+                  assert hashlib.sha256(archive.read(name)).digest() == hashlib.sha256(source.read_bytes()).digest(), f"Source mismatch: {name}"
+          print(f"Validated {len(names)} files in Snip_2.4.1_FINAL.zip")
+          PY
+          node --check background.js
+          node --check content.js
+          node --check pdf.js
+          node --check ExtPay.js
+
+      - name: Commit the updated existing ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Snip_2.4.1_FINAL.zip
+          if git diff --cached --quiet; then
+            echo "Existing package already matches merged source."
+          else
+            git commit -m "Refresh v2.4.1 Chrome release package"
+            git push origin HEAD:main
+          fi
