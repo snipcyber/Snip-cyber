@@ -1,17 +1,38 @@
+import usageHandler from "./usage.js";
+import { verifyUsageReservation } from "./usage-auth.js";
+
+function mockResponse() {
+  return {
+    statusCode: 200, body: null, headers: {},
+    setHeader(name, value) { this.headers[name] = value; },
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    end() { return this; }
+  };
+}
+
 export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
   if (req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
-  const url = (process.env.SUPABASE_URL || "").trim();
-  const key = (process.env.SUPABASE_ANON_KEY || "").trim();
-  if (!url || !key) return res.status(503).json({ ok: false, error: "Supabase public configuration missing" });
-  try {
-    const response = await fetch(url + "/rest/v1/rpc/snip_api_anon_get_usage", {
-      method: "POST",
-      headers: { apikey: key, "Content-Type": "application/json" },
-      body: JSON.stringify({ p_install_hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" })
-    });
-    const body = await response.json().catch(() => ({}));
-    return res.status(response.ok ? 200 : 502).json({ ok: response.ok, status: response.status, result: body });
-  } catch (error) {
-    return res.status(502).json({ ok: false, error: error.message });
+  const headers = { "x-snip-extensionpay-key": "snip-internal-smoke-installation-20261127" };
+  const reservation = mockResponse();
+  await usageHandler({ method: "POST", headers, body: { action: "reserve" } }, reservation);
+  if (reservation.statusCode !== 200 || !reservation.body?.reservation_id) {
+    return res.status(502).json({ step: "reserve", status: reservation.statusCode, body: reservation.body });
   }
+  let claim;
+  try {
+    claim = await verifyUsageReservation({ headers, body: { reservation_id: reservation.body.reservation_id } });
+  } catch (error) {
+    const release = mockResponse();
+    await usageHandler({ method: "POST", headers, body: { action: "release", reservation_id: reservation.body.reservation_id } }, release);
+    return res.status(502).json({ step: "claim", error: error.message, cleanup: release.body });
+  }
+  const release = mockResponse();
+  await usageHandler({ method: "POST", headers, body: { action: "release", reservation_id: reservation.body.reservation_id } }, release);
+  const ok = claim.ok && release.statusCode === 200 && release.body?.ok === true;
+  return res.status(ok ? 200 : 502).json({
+    ok, reserve: reservation.body, claim, release: release.body,
+    note: "Synthetic installation reservation released; no usage was committed."
+  });
 }
